@@ -7,9 +7,10 @@ Created on Tue April 15 16:07:28 2025.
 # =============================================================================
 # ================================= Libraries =================================
 # =============================================================================
-from torch import manual_seed, randint, reshape, arange, uint8, cat, zeros, \
-    long, sqrt, tensor, cumsum, roll
+from torch import manual_seed, randint, reshape, arange, uint8, cat, tensor, \
+    long, sqrt, cumsum, roll, mean, argmin
 from torch import sum as sum_torch
+from torch import abs as abs_torch
 # =============================================================================
 # =============================================================================
 
@@ -444,3 +445,147 @@ def __square_qam_param(qam_order):
         raise ValueError("Modulation order not implemented!")
 
     return n_bits, levels, power
+
+
+def norm_qam_power(qam_tensor, norm='constellation', qam_order=None):
+    """
+    Normalize a tensor of QAM symbols to unit average power.
+
+    This function supports two modes of normalization:
+    - 'constellation': Uses the theoretical average power of a reference square
+                       QAM constellation.
+    - 'power': Computes and normalizes based on the empirical power of the
+               input QAM tensor.
+
+    Args
+    ----
+        qam_tensor (torch.Tensor): A complex-valued tensor of QAM symbols.
+                                   Shape: (..., n_symb).
+        norm (str, optional): Normalization method. Options:
+                              - 'constellation': Normalize by reference QAM
+                                                 constellation power.
+                              - 'power': Normalize by empirical average power
+                                         of the tensor.
+        qam_order (int, optional): QAM order (e.g., 16, 64, 256). Required if
+                                   norm='constellation'.
+
+    Returns
+    -------
+        torch.Tensor: The normalized QAM tensor with approximately unit average
+                      power.
+
+    Raises
+    ------
+        ValueError: If 'norm' mode is invalid or 'qam_order' is missing when
+                    required.
+
+    Example:
+        >>> qam = torch.tensor([1+1j, -3-3j, 1-1j], dtype=torch.cfloat)
+        >>> norm_qam = norm_qam_power(qam, norm='power')
+        >>> print(norm_qam)
+    """
+    # If normalization is performed by reference constellation
+    if norm == 'constellation':
+        # Ensure square QAM, get bits per I/Q component, and power for norm
+        _, _, power = __square_qam_param(qam_order)
+        power = tensor(power)
+
+    elif norm == 'power':
+        # compute power
+        power = mean(abs_torch(qam_tensor)**2, dim=-1, keepdim=True)
+
+    else:
+        raise ValueError("Normalization mode not implemented!")
+
+    # Normalization by the constellation power
+    qam_tensor = qam_tensor / sqrt(power)
+
+    return qam_tensor
+
+
+def denorm_qam_power(qam_tensor, qam_order=None):
+    """
+    Denormalizes a QAM tensor by scaling it to match the theoretical power.
+
+    This function takes a QAM tensor (e.g., previously normalized to unit
+    power) and scales it to match the average power of the ideal square QAM
+    constellation with the specified 'qam_order'.
+
+    Args
+    ----
+        qam_tensor (torch.Tensor): A complex-valued tensor of shape
+                                   (..., n_symb) containing normalized QAM
+                                   symbols.
+        qam_order (int): The QAM modulation order (e.g., 16, 64, 256).
+                         Required to retrieve the reference power.
+
+    Returns
+    -------
+        torch.Tensor: A denormalized tensor scaled to match the target
+                      constellation power.
+
+    Example:
+        >>> qam_norm = torch.tensor([1+1j, -1-1j], dtype=torch.cfloat)
+        >>> qam_denorm = denorm_qam_power(qam_norm, qam_order=16)
+        >>> print(qam_denorm)
+    """
+    # Ensure square QAM, get bits per I/Q component, and power for norm
+    _, _, power = __square_qam_param(qam_order)
+    qam_power = tensor(power)
+
+    # Compute signal power
+    sig_power = mean(abs_torch(qam_tensor)**2, dim=-1, keepdim=True)
+
+    # Denormalization by the constellation power
+    qam_tensor = qam_tensor * sqrt(qam_power) / sqrt(sig_power)
+
+    return qam_tensor
+
+
+def quantization_qam(qam_tensor, qam_order, device):
+    """
+    Quantize a QAM tensor to the nearest ideal constellation points.
+
+    This function assumes square QAM (e.g., 4, 16, 64, 256) and maps each
+    received symbol to the closest point in the reference constellation.
+
+    Args
+    ----
+        qam_tensor (torch.Tensor): Complex tensor of received QAM symbols.
+                                   Shape: (..., n_symb).
+        qam_order (int): QAM modulation order (must be a perfect square).
+        device (torch.device): Device for computation.
+
+    Returns
+    -------
+        torch.Tensor: Complex tensor of quantized symbols with the same shape
+                      as 'qam_tensor'.
+
+    Example:
+        >>> qam = torch.tensor([1.2 + 3.1j, -2.8 - 0.9j],dtype=torch.complex64)
+        >>> quantized = quantization_qam(qam, qam_order=16,
+                                         device=torch.device("cpu"))
+        >>> print(quantized)
+        tensor([ 1.+3.j, -3.-1.j], dtype=torch.complex64)
+    """
+    # For square QAM modulations.
+    _, n_levels, _ = __square_qam_param(qam_order)
+    n_levels = tensor(n_levels)
+
+    # levels of qam symbols (I or Q)
+    levels = arange(n_levels, device=device) * 2 - (n_levels - 1)
+
+    # Quantize I symbols
+    real_diffs = abs_torch(qam_tensor.real.unsqueeze(-1) - levels)
+
+    quant_i = levels[argmin(real_diffs, dim=-1)]
+
+    # Quantize Q symbols
+    imag_diffs = abs_torch(qam_tensor.imag.unsqueeze(-1) - levels)
+
+    quant_q = levels[argmin(imag_diffs, dim=-1)]
+
+    # Join I and Q parts
+    quant_symbols = quant_i + 1j*quant_q
+
+    return quant_symbols
