@@ -9,7 +9,7 @@ from packages.data_streams import random_bit_sequence, bit_to_qam, \
     qam_to_bit, denorm_qam_power, quantization_qam
 from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
     matched_filter, down_sampling
-from packages.opt_tx import laser_tx
+from packages.opt_tx import laser_tx, iqModulator, mux
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot
 
@@ -25,7 +25,7 @@ from matplotlib.pyplot import scatter, plot
 # *****************************************************************************
 
 system_par = {
-    'n_ch': 9,
+    'n_ch': 10,
     'n_pol': 2,
     'n_bits': 10000,
     'rand': 1525,
@@ -38,7 +38,11 @@ system_par = {
     'alpha': 0.2,
     'tx_laser_power_dbm': 0,
     'tx_laser_lw': 10e3,
-    'grid_spacing': 50e9
+    'grid_spacing': 50e9,
+    'vpi': -1,
+    'max_exc': -0.8,  # -0.8 * vpi
+    'min_exc': -1.2,  # -1.2 * vpi
+    'bias': -1  # -vpi
     }
 
 # Get device to simulate the optical system
@@ -88,6 +92,14 @@ laser_tx = laser_tx(system_par['n_ch'], system_par['n_pol'],
                     system_par['sr'], system_par['k_up'],
                     system_par['tx_laser_lw'], freq_grid,
                     system_par['rand'], device)
+
+# Apply the signal of all channels to the IQ modulator
+sig_iqmod_tx = iqModulator(symb_data_shape, laser_tx, system_par['max_exc'],
+                           system_par['min_exc'], system_par['bias'],
+                           system_par['vpi'])
+
+# Multiplex all signals
+sig_tx = mux(sig_iqmod_tx)
 
 # *****************************************************************************
 # *****************************************************************************
