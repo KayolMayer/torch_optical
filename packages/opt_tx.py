@@ -74,7 +74,7 @@ def laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
         E = E * phase_noise.repeat(1, n_pol, 1)
 
     # Apply frequency shift per channel (frequency grid)
-    phase_c = exp(1j * 2 * pi * f_grid.view(-1, 1, 1) * n.view(1, 1, -1) / fs)
+    phase_c = exp(1j * 2 * pi * f_grid.view(-1, 1, 1) * n / fs)
     E = E * phase_c
 
     return E
@@ -130,9 +130,7 @@ def iqModulator(qam_tensor, laser, maxExc, minExc, bias, vpi):
 
 def mux(signals):
     """
-    Multiplex a multi-channel, multi-polarization signal.
-
-    Multiplexing by summing over the channel and polarization dimensions.
+    Multiplex a multi-channel signal by summing over the channel dimension.
 
     Args
     ----
@@ -141,6 +139,6 @@ def mux(signals):
 
     Returns
     -------
-        torch.Tensor: Summed (muxed) signal of shape (n_samples,).
+        torch.Tensor: Summed (muxed) signal of shape (n_pol, n_samples).
     """
-    return sum_torch(signals, dim=(0, 1))
+    return sum_torch(signals, dim=0, keepdim=True)
