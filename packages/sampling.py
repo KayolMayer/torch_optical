@@ -51,6 +51,31 @@ def up_sampling(qam_tensor, k, device):
     return out
 
 
+def down_sampling(qam_tensor, k):
+    """
+    Downsample a tensor along the last dimension by keeping every k-th sample.
+
+    Args
+    ----
+        qam_tensor (torch.Tensor): Input tensor of shape (..., n_samples).
+        k (int): Downsampling factor (e.g., k=2 keeps every 2nd sample).
+
+    Returns
+    -------
+        torch.Tensor: Downsampled tensor of shape (..., n_samples // k).
+
+    Example
+    -------
+        >>> x = torch.arange(10).view(2, 5)  # shape (2, 5)
+        >>> down_sampling(x, k=2)
+        tensor([[0, 2, 4],
+                [5, 7, 9]])
+    """
+    out = qam_tensor[..., ::k]
+
+    return out
+
+
 def rrc_filter(alpha, symbs, k, device):
     """
     Create a Root Raised Cosine (RRC) filter impulse response using PyTorch.
@@ -143,10 +168,7 @@ def shaping_filter(data, filter_coeffs, device):
     filt = filter_coeffs.to(dtype=cfloat, device=device).flip(0).view(1, 1, -1)
 
     # Apply 'full' convolution by padding the left side
-    padding = filter_len - 1
-
-    # Perform convolution
-    out = conv1d(data_reshaped, filt, padding=padding)
+    out = conv1d(data_reshaped, filt, padding=filter_len - 1)
 
     # Reshape back to (n_ch, n_pol, new_n_samples)
     new_n_samples = out.shape[-1]
@@ -187,10 +209,7 @@ def matched_filter(data, filter_coeffs, n_symbs, k, device):
     filt = filter_coeffs.to(dtype=cfloat, device=device).flip(0).view(1, 1, -1)
 
     # Apply 'full' convolution by padding the left side
-    padding = filter_len - 1
-
-    # Perform convolution
-    out = conv1d(data_reshaped, filt, padding=padding)
+    out = conv1d(data_reshaped, filt, padding=filter_len - 1)
 
     # Reshape back to (n_ch, n_pol, new_n_samples)
     new_n_samples = out.shape[-1]

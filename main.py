@@ -5,9 +5,10 @@ Created on Tue Apr 15 16:22:19 2025.
 """
 
 from torch.cuda import is_available
-from packages.data_streams import random_bit_sequence, bit_to_qam, qam_to_bit,\
-    norm_qam_power, denorm_qam_power, quantization_qam
-from packages.sampling import up_sampling, rrc_filter, shaping_filter, matched_filter
+from packages.data_streams import random_bit_sequence, bit_to_qam, \
+    qam_to_bit, denorm_qam_power, quantization_qam
+from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
+    matched_filter, down_sampling
 from matplotlib.pyplot import scatter, plot
 
 system_par = {
@@ -28,6 +29,10 @@ system_par = {
 device = 'cpu'
 print(f"Using {device} device")
 
+# Compute the RRC coefficients
+filter_coeffs = rrc_filter(system_par['alpha'], system_par['filt_symb'],
+                           system_par['k_up'], device)
+
 # Create the bits to be modulated
 bit_data_tx = random_bit_sequence(system_par['n_ch'],
                                   system_par['n_pol'],
@@ -35,29 +40,33 @@ bit_data_tx = random_bit_sequence(system_par['n_ch'],
                                   device,
                                   system_par['rand'])
 
+# Create the square QAM symbols from the generated bits
+symb_data_tx = bit_to_qam(bit_data_tx, system_par['m_qam'], device,
+                          system_par['gray'], system_par['norm'])
 
-symb_data = bit_to_qam(bit_data_tx, system_par['m_qam'], device,
-                       system_par['gray'], system_par['norm'])
+# Upsample the symbols to use the shaping filter
+symb_data_up = up_sampling(symb_data_tx, system_par['k_up'], device)
 
-symb_data_up = up_sampling(symb_data, system_par['k_up'], device)
+# Apply the shaping filter
+symb_data_shape = shaping_filter(symb_data_up, filter_coeffs, device)
 
-filter_coeffs = rrc_filter(system_par['alpha'], system_par['filt_symb'],
-                           system_par['k_up'], device)
+# Apply the matched filter
+symb_data_matched = matched_filter(symb_data_shape, filter_coeffs,
+                                   system_par['filt_symb'],
+                                   system_par['k_up'], device)
 
-symb_data_up_filt = shaping_filter(symb_data_up, filter_coeffs, device)
+# Downsampling of the symbols
+symb_data_down = down_sampling(symb_data_matched, system_par['k_up'])
 
-symb_data_up_filt_m = matched_filter(symb_data_up_filt, filter_coeffs,
-                                     system_par['filt_symb'],
-                                     system_par['k_up'], device)
+# Denormalize the QAM signal to the constellation power
+symb_data_rx = denorm_qam_power(symb_data_down, qam_order=system_par['m_qam'])
 
-#symb_data = norm_qam_power(symb_data, norm='power',  qam_order=system_par['m_qam'])
+# Quantize the symbols to the reference constellations
+symb_data_rx = quantization_qam(symb_data_rx, system_par['m_qam'], device)
 
-#symb_data = denorm_qam_power(symb_data, qam_order=system_par['m_qam'])
+# Demodulate symbols to the respective bits
+bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
 
-#symb_data = quantization_qam(symb_data, system_par['m_qam'], device)
+# scatter(symb_data_up[0,0,:].real, symb_data_up[0,0,:].imag)
 
-#bit_data_rx = qam_to_bit(symb_data, system_par['m_qam'], device, gray=True)
-
-#scatter(symb_data_up[0,0,:].real, symb_data_up[0,0,:].imag)
-
-plot(symb_data_up_filt_m[0,0,0:1000].real)
+# plot(symb_data_up_filt_m[0,0,0:1000].real)
