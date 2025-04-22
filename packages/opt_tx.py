@@ -14,7 +14,28 @@ from torch import manual_seed, float32, arange, sqrt, ones, pi, tensor, exp, \
 
 
 def laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
+    """
+    Generate a multi-channel optical laser signal with optional phase noise.
 
+    Args
+    ----
+        n_ch (int): Number of channels.
+        n_pol (int): Number of polarizations (1 or 2).
+        n_s (int): Number of samples.
+        power_dbm (float): Power per channel in dBm.
+        sr (float): Symbol rate in Hz.
+        k (int): Oversampling factor.
+        lw (float): Laser linewidth (Hz). If > 0, phase noise is added.
+        f_grid (torch.Tensor): 1D tensor of center frequencies per
+                               channel (Hz), shape (n_ch,).
+        seed (int): Random seed for reproducibility.
+        device (torch.device): Target device (e.g., torch.device('cuda')).
+
+    Returns
+    -------
+        torch.Tensor: Complex tensor of shape (n_ch, n_pol, n_s) representing
+                      the laser waveform.
+    """
     # Initiate the seed of random numbers
     manual_seed(seed)
 
