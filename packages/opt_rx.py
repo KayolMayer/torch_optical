@@ -9,8 +9,8 @@ Created on Tue Apr 22 14:36:37 2025.
 # =============================================================================
 from packages.opt_tx import laser_tx
 from torch import tensor, cfloat, float32, sqrt, pi, zeros_like, stack, exp, \
-    arange, cat
-from torch.nn.functional import grid_sample
+    arange, cat, floor, mean, prod, flip
+from torch.nn.functional import grid_sample, conv1d
 # =============================================================================
 # =============================================================================
 
@@ -279,3 +279,91 @@ def adc(signal, k, samples, f_error, p_error, device):
     output = output[..., ::step]
 
     return output
+
+
+def deskew(signal, k, sr, lagrange_order, par_skew, device):
+    """
+    Apply Lagrange interpolation-based deskewing to multi-channel,
+    multi-polarization signals.
+
+    Args
+    ----
+        signal (torch.Tensor): Complex input tensor of
+                               shape (n_ch, n_pol, n_samples)
+        k (int): Oversampling factor
+        sr (float): Symbol rate (Hz)
+        lagrange_order (int): Order of the Lagrange interpolation
+                              (filter length - 1)
+        par_skew (list or tensor): List of skew values per component
+                                   (length = 2 * n_pol),
+        device (torch.device): Target device for computations (e.g., 'cuda').
+
+    Returns
+    -------
+        torch.Tensor: Deskewed signal, same shape as input
+                      (n_ch, n_pol, n_samples)
+    """
+    n_ch, n_pol, n_s = signal.shape
+
+    # Convert skew to samples
+    par_skew = tensor(par_skew, dtype=float32, device=device)
+    skew = (par_skew - par_skew.min()) * (k * sr)  # make min skew = 0
+
+    # Integer and fractional skew
+    nTADC = floor(skew).int()
+    muTADC = -(skew - nTADC.float())
+
+    # Lagrange filter parameters
+    n_taps = lagrange_order + 1
+    center = floor(mean(arange(n_taps, device=device).float())).int()
+
+    # Build all filters: one for each I and Q component
+    filters = []
+    for ii in range(2 * n_pol):
+        steps = arange(n_taps, device=device) - center + nTADC[ii]
+        coeffs = []
+        for s in steps:
+            others = steps[steps != s]
+            num = muTADC[ii] - others
+            denom = s - others
+            coeffs.append(prod(num / denom))
+        filters.append(flip(stack(coeffs), dims=[0]))  # (n_taps,)
+
+    # Decompose into I/Q components
+    real_parts = [signal[:, ii, :].real for ii in range(n_pol)]
+    imag_parts = [signal[:, ii, :].imag for ii in range(n_pol)]
+
+    # Apply filters and reconstruct signal
+    out_streams = []
+    for ii in range(n_pol):
+        real_filtered = __apply_conv_1d(real_parts[ii], filters[2 * ii])
+        imag_filtered = __apply_conv_1d(imag_parts[ii], filters[2 * ii + 1])
+        out_stream = real_filtered + 1j * imag_filtered
+        out_streams.append(out_stream.unsqueeze(1))  # (n_ch, 1, n_s)
+
+    # Concatenate all polarizations back: (n_ch, n_pol, n_s)
+    return cat(out_streams, dim=1)
+
+
+def __apply_conv_1d(sig, coeff):
+    """
+    Apply 1D convolution to a batch of signals using a shared FIR filter kern.
+
+    This function reshapes the input signal and filter kernel for use with
+    PyTorch's conv1d,and applies the same filter to each channel independently.
+
+    Args
+    ----
+        sig (torch.Tensor): Input tensor of shape (n_ch, n_samples), where each
+                            row is a time-domain signal for one channel.
+        coeff (torch.Tensor): 1D FIR filter coefficients of shape (n_taps,)
+
+    Returns
+    -------
+        torch.Tensor: Filtered signal of shape (n_ch, n_samples), after
+                      applying 1D convolution with "same" padding.
+    """
+    sig = sig.unsqueeze(1)         # (n_ch, 1, n_s)
+    kernel = coeff.view(1, 1, -1)  # (1, 1, n_taps)
+
+    return conv1d(sig, kernel, padding="same").squeeze(1)  # (n_ch, n_s)
