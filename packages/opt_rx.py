@@ -8,7 +8,9 @@ Created on Tue Apr 22 14:36:37 2025.
 # ================================= Libraries =================================
 # =============================================================================
 from packages.opt_tx import laser_tx
-from torch import tensor, cfloat, sqrt, pi, zeros_like, stack, exp
+from torch import tensor, cfloat, float32, sqrt, pi, zeros_like, stack, exp, \
+    arange, cat
+from torch.nn.functional import grid_sample
 # =============================================================================
 # =============================================================================
 
@@ -138,3 +140,142 @@ def __hybrid90(Er, ELo, phase_shift, device):
         ECouplerBR[..., 0, :],
         ECouplerBR[..., 1, :]
     )
+
+
+def insert_skew(signal, k, sr, par_skew, device):
+    """
+    Apply independent skew (delay or advance) to I and Q of each polarization.
+
+    Args
+    ----
+        signal (torch.Tensor): Complex tensor of shape (n_ch, n_pol, n_samples)
+        k (int): Oversampling factor
+        sr (float): Symbol rate in Hz
+        par_skew (list or tensor): Length = 2 * n_pol, skew values in seconds.
+        device (torch.device): Device to run computations on.
+
+    Returns
+    -------
+        torch.Tensor: Tensor of shape (n_ch, n_pol, n_samples_trimmed)
+    """
+    n_ch, n_pol, n_samples = signal.shape
+
+    # Convert skew to tensor in sample units
+    par_skew = tensor(par_skew, dtype=float32, device=device)
+    skew_samples = (par_skew - par_skew.min()) * k * sr  # in sample units
+
+    signal_out_real = []
+    signal_out_imag = []
+
+    # Apply skew per polarization
+    for pol in range(n_pol):
+        real_part = signal[:, pol, :].real
+        imag_part = signal[:, pol, :].imag
+
+        skew_I = skew_samples[2 * pol]
+        skew_Q = skew_samples[2 * pol + 1]
+
+        grid_pos_real = arange(n_samples, device=device).float() - skew_I
+        grid_pos_imag = arange(n_samples, device=device).float() - skew_Q
+
+        shifted_real = __interpolate_1d(real_part, grid_pos_real, device)
+        shifted_imag = __interpolate_1d(imag_part, grid_pos_imag, device)
+
+        signal_out_real.append(shifted_real.unsqueeze(1))  # (n_ch, 1, L)
+        signal_out_imag.append(shifted_imag.unsqueeze(1))
+
+    # Stack and reconstruct complex signal
+    real_combined = cat(signal_out_real, dim=1)  # (n_ch, n_pol, L)
+    imag_combined = cat(signal_out_imag, dim=1)  # (n_ch, n_pol, L)
+    output = real_combined + 1j * imag_combined
+
+    return output
+
+
+def __interpolate_1d(x, grid_pos, device):
+    """
+    Apply 1D delay/advance using bilinear interpolation via grid_sample.
+
+    Args
+    ----
+        x (torch.Tensor): (n_ch, n_samples), real-valued
+        grid_pos (torch.Tensor): grid_position for interpolation
+
+    Returns
+    -------
+        torch.Tensor: (n_ch, n_samples), interpolated signal
+    """
+    n_ch, L = x.shape
+    x = x.unsqueeze(1).unsqueeze(2)  # (n_ch, 1, 1, L) → [N, C, H=1, W=L]
+
+    # Create normalized 1D grid: (N, H=1, W=L, 2)
+    grid_x = grid_pos / (L - 1) * 2 - 1  # Normalize to [-1, 1]
+    grid_y = zeros_like(grid_x)    # y = 0 for 1D
+
+    # Combine and reshape grid to (N, 1, L, 2)
+    grid = stack((grid_x, grid_y), dim=-1)  # (L, 2)
+    # (n_ch, 1, L, 2)
+    grid = grid.unsqueeze(0).expand(n_ch, 1, L, 2).contiguous()
+
+    # grid_sample expects input shape [N, C, H, W], grid shape [N, H, W, 2]
+    out = grid_sample(x, grid, mode='bilinear', padding_mode='border',
+                      align_corners=True)
+
+    return out.squeeze(2).squeeze(1)  # Back to shape (n_ch, L)
+
+
+def adc(signal, k, samples, f_error, p_error, device):
+    """
+    Simulate the ADC, including phase error and frequency offset correction.
+
+    Args
+    ----
+        signal (torch.Tensor): Input complex signal of shape (n_ch, n_pol,
+                                                              n_samples),
+                               where n_ch is number of WDM channels, and n_pol
+                               is the number of polarizations.
+        k (int): Oversampling factor (samples per symbol).
+        samples (int): Number of samples per symbol after downsampling
+                       (typically 1 or 2).
+        f_error (float): Frequency offset error (Hz).
+        p_error (float): Phase offset error (fraction of a sample).
+        device (torch.device): Target device for computations (e.g., 'cuda').
+
+    Returns
+    -------
+        torch.Tensor: Output complex signal after ADC and downsampling,
+                      shape (n_ch, n_pol, n_output_samples).
+    """
+    n_ch, n_pol, n_samples = signal.shape
+
+    # Sampling positions (same for all polarizations initially)
+    grid_pos_base = arange(n_samples, dtype=float32, device=device) +\
+        (k * f_error / samples)
+
+    signal_out_real = []
+    signal_out_imag = []
+
+    # Apply skew per polarization
+    for pol in range(n_pol):
+        real_part = signal[:, pol, :].real
+        imag_part = signal[:, pol, :].imag
+
+        # Total sampling positions with phase error
+        grid_pos = grid_pos_base - p_error * k
+
+        shifted_real = __interpolate_1d(real_part, grid_pos, device)
+        shifted_imag = __interpolate_1d(imag_part, grid_pos, device)
+
+        signal_out_real.append(shifted_real.unsqueeze(1))  # (n_ch, 1, L)
+        signal_out_imag.append(shifted_imag.unsqueeze(1))
+
+    # Stack and reconstruct complex signal
+    real_combined = cat(signal_out_real, dim=1)  # (n_ch, n_pol, L)
+    imag_combined = cat(signal_out_imag, dim=1)  # (n_ch, n_pol, L)
+    output = real_combined + 1j * imag_combined
+
+    # Downsample
+    step = int(k / samples)
+    output = output[..., ::step]
+
+    return output

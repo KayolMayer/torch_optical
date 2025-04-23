@@ -10,7 +10,7 @@ from packages.data_streams import random_bit_sequence, bit_to_qam, \
 from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
     matched_filter, down_sampling
 from packages.opt_tx import laser_tx, iqModulator, mux
-from packages.opt_rx import laser_rx, optical_front_end
+from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, interpolate_1d_2
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot
 
@@ -48,6 +48,10 @@ system_par = {
     'bias': -1,  # -vpi
     'responsivity': 1,  # Receiver photodetector responsivity [A/W]
     'phase_shift': 5,  # Phase shift in the hybrid90 [degree]
+    'skew': [5e-15, -5e-15, 5e-152, -5e-15],  # Skew for I and Q of each pol [s]
+    'adc_samples': 2,
+    'adc_f_error_ppm': 5.0,  # frequency error (ppm)
+    'adc_phase_error': 0.0,  # phase error [-0.5,0.5]
     }
 
 # Get device to simulate the optical system
@@ -124,17 +128,25 @@ laser_rx = laser_rx(system_par['n_ch'], system_par['n_pol'],
                     system_par['rx_laser_lw'], freq_grid,
                     system_par['rand']*1000, device)
 
-
+# Apply the optical front end to recover the vertical and horizontal pols
 signal_rx = optical_front_end(sig_tx, laser_rx, system_par['responsivity'],
                               system_par['phase_shift'], device)
 
+# Apply skew as a source of problem
+signal_skew = insert_skew(signal_rx, system_par['k_up'], system_par['sr'],
+                          system_par['skew'], device)
+
 # Apply the matched filter
-symb_data_matched = matched_filter(signal_rx, filter_coeffs,
+symb_data_matched = matched_filter(signal_skew, filter_coeffs,
                                    system_par['filt_symb'],
                                    system_par['k_up'], device)
 
+symb_data_adc = adc(symb_data_matched, system_par['k_up'],
+                    system_par['adc_samples'], system_par['adc_f_error_ppm'],
+                    system_par['adc_phase_error'], device)
+
 # Downsampling of the symbols
-symb_data_down = down_sampling(symb_data_matched, system_par['k_up'])
+symb_data_down = down_sampling(symb_data_adc, system_par['adc_samples'])
 
 # Denormalize the QAM signal to the constellation power
 symb_data_rx = denorm_qam_power(symb_data_down, qam_order=system_par['m_qam'])
