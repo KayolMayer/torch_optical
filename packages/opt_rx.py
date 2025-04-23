@@ -283,8 +283,7 @@ def adc(signal, k, samples, f_error, p_error, device):
 
 def deskew(signal, k, sr, lagrange_order, par_skew, device):
     """
-    Apply Lagrange interpolation-based deskewing to multi-channel,
-    multi-polarization signals.
+    Apply Lagrange interpolation-based deskewing.
 
     Args
     ----
@@ -367,3 +366,41 @@ def __apply_conv_1d(sig, coeff):
     kernel = coeff.view(1, 1, -1)  # (1, 1, n_taps)
 
     return conv1d(sig, kernel, padding="same").squeeze(1)  # (n_ch, n_s)
+
+
+def gsop(signal):
+    """
+    Apply Gram-Schmidt Orthogonalization (GSOP) to complex-valued signals.
+
+    This function orthogonalizes the imaginary (Q) component of the signal
+    with respect to the real (I) component using the Gram-Schmidt process.
+    The I component is normalized and used as the reference.
+
+    Args
+    ----
+        signal (torch.Tensor): Complex input tensor of
+                               shape (n_ch, n_pol, n_samples)
+
+    Returns
+    -------
+        torch.Tensor: Orthogonalized and normalized complex tensor of shape
+                      (n_ch, n_pol, n_samples), where I and Q components are
+                      orthogonal and unit-normalized per polarization and
+                      channel.
+    """
+    n_ch, n_pol, n_s = signal.shape
+
+    # Get IQ from V and H polarizations
+    sig_i = signal.real
+    sig_q = signal.imag
+
+    # Taking the in-phase components as reference
+    r_ort_i = sig_i / sqrt(mean(sig_i ** 2, dim=-1, keepdim=True))
+
+    # Orthogonalization
+    r_ort_q = sig_q - mean(sig_i * sig_q) * sig_i / mean(sig_i ** 2)
+    r_ort_q = r_ort_q/sqrt(mean(r_ort_q ** 2, dim=-1, keepdim=True))
+
+    output = r_ort_i + 1j * r_ort_q
+
+    return output

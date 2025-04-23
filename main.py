@@ -11,7 +11,7 @@ from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
     matched_filter, down_sampling
 from packages.opt_tx import laser_tx, iqModulator, mux
 from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
-    deskew
+    deskew, gsop
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot
 
@@ -39,16 +39,16 @@ system_par = {
     'filt_symb': 20,
     'alpha': 0.2,
     'tx_laser_power_dbm': 0,
-    'tx_laser_lw': 00e3,
+    'tx_laser_lw': 10e3,
     'rx_laser_power_dbm': 0,
-    'rx_laser_lw': 00e3,
+    'rx_laser_lw': 10e3,
     'grid_spacing': 50e9,
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
     'min_exc': -1.2,  # -1.2 * vpi
     'bias': -1,  # -vpi
     'responsivity': 1,  # Receiver photodetector responsivity [A/W]
-    'phase_shift': 0,  # Phase shift in the hybrid90 [degree]
+    'phase_shift': 5,  # Phase shift in the hybrid90 [degree]
     'skew': [5e-12, -5e-12, 5e-12, -5e-12],  # Skew for I and Q of each pol [s]
     'adc_samples': 2,
     'adc_f_error_ppm': 0.0,  # frequency error (ppm)
@@ -147,12 +147,16 @@ symb_data_adc = adc(symb_data_matched, system_par['k_up'],
                     system_par['adc_samples'], system_par['adc_f_error_ppm'],
                     system_par['adc_phase_error'], device)
 
+# Deskew with Lagrange interpolator
 symb_data_deskew = deskew(symb_data_adc, system_par['adc_samples'],
                           system_par['sr'], system_par['lagrange_order'],
                           system_par['skew'], device)
 
+# Gram-Schmidt Orthogonalization
+symb_data_gsop = gsop(symb_data_deskew)
+
 # Downsampling of the symbols
-symb_data_down = down_sampling(symb_data_deskew, system_par['adc_samples'])
+symb_data_down = down_sampling(symb_data_gsop, system_par['adc_samples'])
 
 # Denormalize the QAM signal to the constellation power
 symb_data_rx = denorm_qam_power(symb_data_down, qam_order=system_par['m_qam'])
