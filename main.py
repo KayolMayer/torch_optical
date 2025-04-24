@@ -64,7 +64,6 @@ system_par = {
     'fiber_gamma': 1.27,  # Nonlinear Coefficient [1/W/km]
     'fiber_disp': 17,  # Fiber dispersion [ps/nm/km]
     'fiber_dgd': 0.1,  # Fiber PMD coefficient [ps/√km]
-    'split_steps': 100,  # Numbers of steps applying the split step Fourier
     }
 
 # Get device to simulate the optical system
