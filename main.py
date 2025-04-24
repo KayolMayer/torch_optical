@@ -12,6 +12,7 @@ from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
 from packages.opt_tx import laser_tx, iqModulator, mux
 from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
+from packages.amplifier import edfa
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot
 
@@ -33,16 +34,17 @@ system_par = {
     'rand': 1525,
     'm_qam': 16,
     'sr': 40e9,
+    'grid_spacing': 50e9,
+    'center_freq': 193.1e12,  # Center frequency of the spectrum in Hz
     'gray': True,
     'norm': True,
-    'k_up': 16,
+    'k_up': 16,  # Upsampling factor for RRC
     'filt_symb': 20,
-    'alpha': 0.2,
+    'alpha': 0.2,  # RRC rolloff
     'tx_laser_power_dbm': 0,
     'tx_laser_lw': 10e3,
     'rx_laser_power_dbm': 0,
     'rx_laser_lw': 10e3,
-    'grid_spacing': 50e9,
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
     'min_exc': -1.2,  # -1.2 * vpi
@@ -53,7 +55,9 @@ system_par = {
     'adc_samples': 2,
     'adc_f_error_ppm': 0.0,  # frequency error (ppm)
     'adc_phase_error': 0.0,  # phase error [-0.5,0.5]
-    'lagrange_order': 10  # Number of lagrange coeeficients (usually 4 to 6)
+    'lagrange_order': 10,  # Number of lagrange coeeficients (usually 4 to 6)
+    'nf_db_boost': 5.5,  # Booster noise figure in dB
+    'gain_db_boost': 21.4,  # Booster gain in dB
     }
 
 # Get device to simulate the optical system
@@ -116,6 +120,21 @@ sig_tx = mux(sig_iqmod_tx)
 # *****************************************************************************
 # *****************************************************************************
 #
+#                            TRANSMISSION CHANNEL
+#
+# *****************************************************************************
+# *****************************************************************************
+# *****************************************************************************
+
+# Booster
+sig_ch = edfa(sig_tx, system_par['nf_db_boost'], system_par['gain_db_boost'],
+              system_par['center_freq'], system_par['sr'], system_par['alpha'],
+              system_par['k_up'], system_par['rand'], device)
+
+# *****************************************************************************
+# *****************************************************************************
+# *****************************************************************************
+#
 #                               RECEIVER SIDE
 #
 # *****************************************************************************
@@ -131,7 +150,7 @@ laser_rx = laser_rx(system_par['n_ch'], system_par['n_pol'],
                     system_par['rand']*1000, device)
 
 # Apply the optical front end to recover the vertical and horizontal pols
-signal_rx = optical_front_end(sig_tx, laser_rx, system_par['responsivity'],
+signal_rx = optical_front_end(sig_ch, laser_rx, system_par['responsivity'],
                               system_par['phase_shift'], device)
 
 # Apply skew as a source of problem
