@@ -13,6 +13,7 @@ from packages.opt_tx import laser_tx, iqModulator, mux
 from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
+from packages.fiber import ssmf
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot
 
@@ -48,16 +49,22 @@ system_par = {
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
     'min_exc': -1.2,  # -1.2 * vpi
-    'bias': -1,  # -vpi
+    'bias': -1,  # -1.0 * vpi
     'responsivity': 1,  # Receiver photodetector responsivity [A/W]
     'phase_shift': 5,  # Phase shift in the hybrid90 [degree]
     'skew': [5e-12, -5e-12, 5e-12, -5e-12],  # Skew for I and Q of each pol [s]
-    'adc_samples': 2,
+    'adc_samples': 2,  # Number of samples after the ADC
     'adc_f_error_ppm': 0.0,  # frequency error (ppm)
     'adc_phase_error': 0.0,  # phase error [-0.5,0.5]
     'lagrange_order': 10,  # Number of lagrange coeeficients (usually 4 to 6)
     'nf_db_boost': 5.5,  # Booster noise figure in dB
     'gain_db_boost': 21.4,  # Booster gain in dB
+    'fiber_len_km': 80,  # Fiber length [km]
+    'fiber_att_db_km': 0.2,  # Fiber attenuation [dB/km]
+    'fiber_gamma': 1.27,  # Nonlinear Coefficient [1/W/km]
+    'fiber_disp': 17,  # Fiber dispersion [ps/nm/km]
+    'fiber_dgd': 0.1,  # Fiber PMD coefficient [ps/√km]
+    'split_steps': 100,  # Numbers of steps applying the split step Fourier
     }
 
 # Get device to simulate the optical system
@@ -109,12 +116,9 @@ laser_tx = laser_tx(system_par['n_ch'], system_par['n_pol'],
                     system_par['rand'], device)
 
 # Apply the signal of all channels to the IQ modulator
-sig_iqmod_tx = iqModulator(symb_data_shape, laser_tx, system_par['max_exc'],
-                           system_par['min_exc'], system_par['bias'],
-                           system_par['vpi'])
-
-# Multiplex all signals
-sig_tx = mux(sig_iqmod_tx)
+sig_tx = iqModulator(symb_data_shape, laser_tx, system_par['max_exc'],
+                     system_par['min_exc'], system_par['bias'],
+                     system_par['vpi'])
 
 # *****************************************************************************
 # *****************************************************************************
@@ -128,8 +132,13 @@ sig_tx = mux(sig_iqmod_tx)
 
 # Booster
 sig_ch = edfa(sig_tx, system_par['nf_db_boost'], system_par['gain_db_boost'],
-              system_par['center_freq'], system_par['sr'], system_par['alpha'],
-              system_par['k_up'], system_par['rand'], device)
+              system_par['center_freq'] + freq_grid, system_par['sr'],
+              system_par['alpha'], system_par['k_up'], system_par['rand'],
+              device)
+
+# Fiber
+sig_ch = ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
+              **system_par)
 
 # *****************************************************************************
 # *****************************************************************************

@@ -112,9 +112,6 @@ def __hybrid90(Er, ELo, phase_shift, device):
     # Convert phase_shift from degrees to radians and apply to phase term
     phase = exp(1j * (1 + (phase_shift * pi / 180)) * pi / 2)
 
-    # Repeat Er to have the same dimension of the laser for the channels
-    Er = Er.repeat(ELo.shape[0], 1, 1)
-
     # ECouplerTL - Signal at the output of the top-left 3-dB coupler at the
     # 90 degree hybrid
     ECouplerTL = Hc @ stack((Er, zeros_like(Er)), dim=-2)

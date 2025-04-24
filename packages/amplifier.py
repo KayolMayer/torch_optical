@@ -55,7 +55,7 @@ def __ase_edfa(signal, nf_db, gain_db, freq, sr, alpha, k_up, seed, device):
                                shape (n_ch, n_pol, n_samples)
         nf_db (float): EDFA noise figure in dB
         gain_db (float): Amplifier gain in dB
-        freq (float): Optical carrier frequency in Hz
+        freq (torch.Tensor): Tensor of frequencies (n_ch)
         sr (float): Symbol rate in Hz
         alpha (float): Filter rolloff
         k_up (int): Upsampling factor (samples per symbol)
@@ -72,7 +72,7 @@ def __ase_edfa(signal, nf_db, gain_db, freq, sr, alpha, k_up, seed, device):
     # Planck's constant [m^2 kg / s]
     h = 6.62607004e-34
 
-    # Number of number of channels, polarizations, and samples
+    # Number of channels, polarizations, and samples
     n_ch, n_pol, n_s = signal.shape
 
     # Linear noise figure
@@ -90,7 +90,7 @@ def __ase_edfa(signal, nf_db, gain_db, freq, sr, alpha, k_up, seed, device):
     noise = randn((n_ch, n_pol, n_s), dtype=float32, device=device) + \
         1j * randn((n_ch, n_pol, n_s), dtype=float32, device=device)
 
-    out_data = signal + std_dev * noise
+    out_data = signal + std_dev.view(-1, 1, 1) * noise
 
     return out_data
 
@@ -109,7 +109,7 @@ def edfa(signal, nf_db, gain_db, freq, sr, alpha, k_up, seed, device):
                                shape (n_ch, n_pol, n_samples)
         nf_db (float): Noise figure of the EDFA in dB
         gain_db (float): Gain of the amplifier in dB
-        freq (float): Optical carrier frequency in Hz
+        freq (torch.Tensor): Tensor of frequencies (n_ch)
         sr (float): Symbol rate in Hz
         alpha (float): Filter rolloff
         k_up (int): Upsampling factor (samples per symbol)
