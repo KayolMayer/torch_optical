@@ -234,8 +234,7 @@ def __apply_pmd(E, omega, tau, device):
     n_ch = E.shape[0]
 
     # Create the unitary matrices for rotations
-    U, _, Vh = svd(randn(n_ch, 2, 2, dtype=float32, device=device) +
-                   1j * randn(n_ch, 2, 2, dtype=float32, device=device))
+    U, _, Vh = svd(randn(n_ch, 2, 2, dtype=cfloat, device=device))
 
     # Apply rotations
     Erot = Vh @ E
@@ -432,8 +431,7 @@ def __pmd(E_freq, dgd, fiber_len, n_sec, sr, k, device):
     n_ch, _, n_s = E_freq.shape
 
     # Create the unitary matrices for rotations
-    U, _, Vh = svd(randn(n_sec, n_ch, 2, 2, dtype=float32, device=device) +
-                   1j * randn(n_sec, n_ch, 2, 2, dtype=float32, device=device))
+    U, _, Vh = svd(randn(n_sec, n_ch, 2, 2, dtype=cfloat, device=device))
 
     # Get the frequency vector
     omega = 2 * pi * fftfreq(n_s, device=device) * k * sr
