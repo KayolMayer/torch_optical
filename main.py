@@ -5,6 +5,7 @@ Created on Tue Apr 15 16:22:19 2025.
 """
 
 from torch.cuda import is_available
+from torch import tensor
 from packages.data_streams import random_bit_sequence, bit_to_qam, \
     qam_to_bit, denorm_qam_power, quantization_qam
 from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
@@ -14,6 +15,7 @@ from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
 from packages.fiber import ssmf, simple_ssmf
+from packages.equalizers import cd_equalization
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot
 
@@ -43,9 +45,9 @@ system_par = {
     'filt_symb': 20,
     'alpha': 0.2,  # RRC rolloff
     'tx_laser_power_dbm': 0,
-    'tx_laser_lw': 10e3,
+    'tx_laser_lw': 20e3,
     'rx_laser_power_dbm': 0,
-    'rx_laser_lw': 10e3,
+    'rx_laser_lw': 20e3,
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
     'min_exc': -1.2,  # -1.2 * vpi
@@ -57,8 +59,10 @@ system_par = {
     'adc_f_error_ppm': 0.0,  # frequency error (ppm)
     'adc_phase_error': 0.0,  # phase error [-0.5,0.5]
     'lagrange_order': 10,  # Number of lagrange coeeficients (usually 4 to 6)
+    'cdc_n_fft': 1024,  # FFT length to compensate CD
+    'cdc_fft_overlap': 64,  # Number of samples of overlaping computing the FFT
     'nf_db_boost': 5.5,  # Booster noise figure in dB
-    'gain_db_boost': 21.4,  # Booster gain in dB
+    'gain_db_boost': 20,  # Booster gain in dB
     'fiber_len_km': 80,  # Fiber length [km]
     'fiber_att_db_km': 0.2,  # Fiber attenuation [dB/km]
     'fiber_gamma': 1.27,  # Nonlinear Coefficient [1/W/km]
@@ -74,7 +78,6 @@ print(f"Using {device} device")
 # Compute the RRC coefficients
 filter_coeffs = rrc_filter(system_par['alpha'], system_par['filt_symb'],
                            system_par['k_up'], device)
-
 
 # Get the frequency grid centered at 0 Hz
 freq_grid = get_freq_grid(system_par['n_ch'], system_par['grid_spacing'])
@@ -106,12 +109,13 @@ symb_data_up = up_sampling(symb_data_tx, system_par['k_up'], device)
 # Apply the shaping filter
 symb_data_shape = shaping_filter(symb_data_up, filter_coeffs, device)
 
-# Create the laser source
+# Create the laser source. All channels are considered centered in zero, but
+# the impairments are applied to their rescpective frequency.
 laser_tx = laser_tx(system_par['n_ch'], system_par['n_pol'],
                     symb_data_shape.shape[-1],
                     system_par['tx_laser_power_dbm'],
                     system_par['sr'], system_par['k_up'],
-                    system_par['tx_laser_lw'], freq_grid,
+                    system_par['tx_laser_lw'], tensor(0),
                     system_par['rand'], device)
 
 # Apply the signal of all channels to the IQ modulator
@@ -136,8 +140,8 @@ sig_ch = edfa(sig_tx, system_par['nf_db_boost'], system_par['gain_db_boost'],
               device)
 
 # Fiber
-# sig_ch = ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
-#               **system_par)
+#sig_ch = ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
+#              **system_par)
 sig_ch = simple_ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
                      **system_par)
 
@@ -151,12 +155,13 @@ sig_ch = simple_ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
 # *****************************************************************************
 # *****************************************************************************
 
-# Create the laser source
+# Create the laser source. All channels are considered centered in zero, but
+# the impairments are applied to their rescpective frequency.
 laser_rx = laser_rx(system_par['n_ch'], system_par['n_pol'],
                     symb_data_shape.shape[-1],
                     system_par['rx_laser_power_dbm'],
                     system_par['sr'], system_par['k_up'],
-                    system_par['rx_laser_lw'], freq_grid,
+                    system_par['rx_laser_lw'], tensor(0),
                     system_par['rand']*1000, device)
 
 # Apply the optical front end to recover the vertical and horizontal pols
@@ -184,8 +189,17 @@ symb_data_deskew = deskew(symb_data_adc, system_par['adc_samples'],
 # Gram-Schmidt Orthogonalization
 symb_data_gsop = gsop(symb_data_deskew)
 
+# CD compensation
+symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
+                                system_par['fiber_len_km'],
+                                system_par['center_freq'] + freq_grid,
+                                system_par['sr'],
+                                system_par['adc_samples'],
+                                system_par['cdc_n_fft'],
+                                system_par['cdc_fft_overlap'], device)
+
 # Downsampling of the symbols
-symb_data_down = down_sampling(symb_data_gsop, system_par['adc_samples'])
+symb_data_down = down_sampling(symb_data_cdc, system_par['adc_samples'])
 
 # Denormalize the QAM signal to the constellation power
 symb_data_rx = denorm_qam_power(symb_data_down, qam_order=system_par['m_qam'])

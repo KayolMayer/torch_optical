@@ -8,7 +8,7 @@ Created on Thu Apr 24 13:35:51 2025.
 # ================================= Libraries =================================
 # =============================================================================
 from torch import sqrt, exp, log, tensor, float32, pi, clone, floor, randn, \
-    cfloat
+    cfloat, arange
 from torch import sum as sum_torch
 from torch import abs as abs_torch
 from torch import max as max_torch
@@ -98,6 +98,10 @@ def simple_ssmf(signal, fc, device, **kwargs):
     # Get the number of polarizations
     n_pol = signal.shape[1]
 
+    # Apply nonlinearity
+    signal = __nonlinear_phase_shift(signal, kwargs['fiber_len_km'],
+                                     kwargs['fiber_gamma'], device)
+
     # Apply attenuation
     signal = __att_fiber(signal, kwargs['fiber_len_km'],
                          kwargs['fiber_att_db_km'], device)
@@ -117,10 +121,6 @@ def simple_ssmf(signal, fc, device, **kwargs):
 
     # Transform signal to the time domain
     signal = ifft(signal)
-
-    # Apply nonlinearity
-    # signal = __nonlinear_phase_shift(signal, kwargs['fiber_len_km'],
-    #                                  kwargs['fiber_gamma'], device)
 
     return signal
 
@@ -486,6 +486,9 @@ def __cd(E_freq, dispersion, fiber_len, freq, sr, k, device):
     # Speed of light [m/s]
     c = 299792458
 
+    # fiber length in meters
+    L = fiber_len * 1e3
+
     # wavelengths [m], shape (n_ch, 1, 1)
     lambdas = (c / freq).view(-1, 1, 1)
 
@@ -493,10 +496,11 @@ def __cd(E_freq, dispersion, fiber_len, freq, sr, k, device):
     disp = dispersion * 1e-12 / (1e-9 * 1e3)
 
     # Get the frequency vector
-    omega = 2 * pi * fftfreq(n_s, device=device) * k * sr
+    omega = 2 * pi * k * sr * \
+        arange(-1 / 2, 1 / 2, 1 / n_s, dtype=float32, device=device)
 
     # Calculating the CD frequency response
-    G = exp(1j * ((disp * lambdas ** 2)/(4 * pi * c)) * fiber_len * omega ** 2)
+    G = exp(1j * ((disp * lambdas ** 2) / (4 * pi * c)) * L * omega ** 2)
 
     # Inserting CD to the transmitted signal
     E_freq = ifftshift(G * fftshift(E_freq))
