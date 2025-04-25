@@ -229,8 +229,11 @@ def __apply_pmd(E, omega, tau):
     -------
         E (torch.Tensor): Signal after DGD rotation
     """
+    # Get the number of channels
+    n_ch = E.shape[0]
+
     # Create the unitary matrices for rotations
-    U, _, Vh = svd(randn(2, 2) + 1j * randn(2, 2))
+    U, _, Vh = svd(randn(n_ch, 2, 2) + 1j * randn(n_ch, 2, 2))
 
     # Apply rotations
     Erot = Vh @ E
