@@ -13,7 +13,7 @@ from packages.opt_tx import laser_tx, iqModulator, mux
 from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
-from packages.fiber import ssmf
+from packages.fiber import ssmf, simple_ssmf
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot
 
@@ -136,8 +136,10 @@ sig_ch = edfa(sig_tx, system_par['nf_db_boost'], system_par['gain_db_boost'],
               device)
 
 # Fiber
-sig_ch = ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
-              **system_par)
+# sig_ch = ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
+#               **system_par)
+sig_ch = simple_ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
+                     **system_par)
 
 # *****************************************************************************
 # *****************************************************************************
