@@ -7,7 +7,7 @@ Created on Thu Apr 24 12:43:26 2025.
 # =============================================================================
 # ================================= Libraries =================================
 # =============================================================================
-from torch import log, exp, manual_seed, sqrt, tensor, float32, randn
+from torch import log, exp, manual_seed, sqrt, tensor, float32, cfloat, randn
 # =============================================================================
 # =============================================================================
 
@@ -87,8 +87,8 @@ def __ase_edfa(signal, nf_db, gain_db, freq, sr, alpha, k_up, seed, device):
     # Standard deviation of noise
     std_dev = sqrt(p_ase * k_up * n_pol / 4)
 
-    noise = randn((n_ch, n_pol, n_s), dtype=float32, device=device) + \
-        1j * randn((n_ch, n_pol, n_s), dtype=float32, device=device)
+    # Real and imaginary parts with unitary variance
+    noise = randn((n_ch, n_pol, n_s), dtype=cfloat, device=device) * 2 ** 0.5
 
     out_data = signal + std_dev.view(-1, 1, 1) * noise
 
