@@ -8,7 +8,7 @@ Created on Tue April 15 16:07:28 2025.
 # ================================= Libraries =================================
 # =============================================================================
 from torch import manual_seed, randint, reshape, arange, uint8, cat, tensor, \
-    long, sqrt, cumsum, roll, mean, argmin
+    long, sqrt, cumsum, roll, mean, argmin, float32, meshgrid, log2
 from torch import sum as sum_torch
 from torch import abs as abs_torch
 # =============================================================================
@@ -406,43 +406,30 @@ def __square_qam_param(qam_order):
             - levels (int): Number of amplitude levels per axis (I or Q).
             - power (int): Average constellation power (for normalization).
 
-    Raises
-    ------
-        ValueError: If the given modulation order is not supported.
-
     Example
     -------
         >>> n_bits, levels, power = __square_qam_param(16)
         >>> print(n_bits, levels, power)
         4 4 10
     """
-    # Ensure square QAM, get bits per I/Q component, and power for norm
-    if qam_order == 2:
-        n_bits = 1
-        levels = 1
-        power = 1
-    elif qam_order == 4:
-        n_bits = 2
-        levels = 2
-        power = 2
-    elif qam_order == 16:
-        n_bits = 4
-        levels = 4
-        power = 10
-    elif qam_order == 64:
-        n_bits = 6
-        levels = 8
-        power = 42
-    elif qam_order == 256:
-        n_bits = 8
-        levels = 16
-        power = 170
-    elif qam_order == 1024:
-        n_bits = 10
-        levels = 32
-        power = 682
-    else:
-        raise ValueError("Modulation order not implemented!")
+    # Compute the number of levels
+    levels = int(qam_order ** 0.5)
+
+    # Compute the number of bits per QAM symbol
+    n_bits = int(log2(tensor(qam_order)))
+
+    axis = arange(levels, dtype=float32)
+    axis = 2 * axis - (levels - 1)  # Center constellation at 0
+
+    # Meshgrid over I and Q
+    I, Q = meshgrid(axis, axis, indexing='ij')
+    constellation = I + 1j * Q
+
+    # Flatten to 1D tensor
+    symbols = constellation.reshape(-1)
+
+    # Compute power
+    power = float(mean(abs_torch(symbols) ** 2))
 
     return n_bits, levels, power
 

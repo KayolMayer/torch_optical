@@ -15,9 +15,9 @@ from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
 from packages.fiber import ssmf, simple_ssmf
-from packages.equalizers import cd_equalization
+from packages.equalizers import cd_equalization, cma_equalization
 from packages.utils import get_freq_grid
-from matplotlib.pyplot import scatter, plot
+from matplotlib.pyplot import scatter, plot, figure
 
 
 # *****************************************************************************
@@ -31,11 +31,11 @@ from matplotlib.pyplot import scatter, plot
 # *****************************************************************************
 
 system_par = {
-    'n_ch': 3,
+    'n_ch': 1,
     'n_pol': 2,
-    'n_bits': 10000,
+    'n_bits': 80000,
     'rand': 1525,
-    'm_qam': 16,
+    'm_qam': 4,
     'sr': 40e9,
     'grid_spacing': 50e9,
     'center_freq': 193.1e12,  # Center frequency of the spectrum in Hz
@@ -45,9 +45,9 @@ system_par = {
     'filt_symb': 20,
     'alpha': 0.2,  # RRC rolloff
     'tx_laser_power_dbm': 0,
-    'tx_laser_lw': 20e3,
+    'tx_laser_lw': 10e3,
     'rx_laser_power_dbm': 0,
-    'rx_laser_lw': 20e3,
+    'rx_laser_lw': 10e3,
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
     'min_exc': -1.2,  # -1.2 * vpi
@@ -61,6 +61,8 @@ system_par = {
     'lagrange_order': 10,  # Number of lagrange coeeficients (usually 4 to 6)
     'cdc_n_fft': 1024,  # FFT length to compensate CD
     'cdc_fft_overlap': 64,  # Number of samples of overlaping computing the FFT
+    'pmd_eq_taps': 15,  # Number of taps of the PMD equalizer
+    'pmd_eq_eta': 1e-4,  # Learning rate of the adaptive equalizer
     'nf_db_boost': 5.5,  # Booster noise figure in dB
     'gain_db_boost': 20,  # Booster gain in dB
     'fiber_len_km': 80,  # Fiber length [km]
@@ -198,11 +200,17 @@ symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
                                 system_par['cdc_n_fft'],
                                 system_par['cdc_fft_overlap'], device)
 
+symb_data_pmdc = cma_equalization(symb_data_cdc, system_par['adc_samples'],
+                                  system_par['pmd_eq_taps'],
+                                  system_par['pmd_eq_eta'],
+                                  system_par['m_qam'],
+                                  system_par['norm'], device)
+
 # Downsampling of the symbols
-symb_data_down = down_sampling(symb_data_cdc, system_par['adc_samples'])
+#symb_data_down = down_sampling(symb_data_cdc, system_par['adc_samples'])
 
 # Denormalize the QAM signal to the constellation power
-symb_data_rx = denorm_qam_power(symb_data_down, qam_order=system_par['m_qam'])
+symb_data_rx = denorm_qam_power(symb_data_pmdc, qam_order=system_par['m_qam'])
 
 # Quantize the symbols to the reference constellations
 #symb_data_rx = quantization_qam(symb_data_rx, system_par['m_qam'], device)
@@ -210,6 +218,10 @@ symb_data_rx = denorm_qam_power(symb_data_down, qam_order=system_par['m_qam'])
 # Demodulate symbols to the respective bits
 #bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
 
-scatter(symb_data_rx.real, symb_data_rx.imag)
+figure(1)
+scatter(symb_data_rx[:,0,-5000:].real, symb_data_rx[:,0,-5000:].imag)
+
+figure(2)
+scatter(symb_data_rx[:,1,-5000:].real, symb_data_rx[:,1,-5000:].imag)
 
 # plot(symb_data_up_filt_m[0,0,0:1000].real)

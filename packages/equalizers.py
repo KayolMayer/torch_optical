@@ -8,7 +8,9 @@ Created on Fri Apr 25 13:35:51 2025.
 # ================================= Libraries =================================
 # =============================================================================
 from torch import tensor, ceil, cat, reshape, zeros, cfloat, float32, arange, \
-    exp, pi
+    exp, pi, roll, meshgrid, mean, sqrt, flip
+from torch import sum as sum_torch
+from torch import abs as abs_torch
 from torch.fft import fft, fftshift, ifft, ifftshift
 # =============================================================================
 # =============================================================================
@@ -160,3 +162,137 @@ def __overlap_cdc(signal, n_fft, n_over, h_freq_cd, device):
     out = out[..., int((n_extra + n_over) / 2): -int((n_extra - n_over) / 2)]
 
     return out
+
+
+def cma_equalization(signal, k, taps, eta, qam_order, norm, device, spike=0,
+                     n_iter_sing=5000):
+    """
+    Perform Constant Modulus Algorithm (CMA) equalization.
+
+    This implementation processes complex signals received over two
+    polarizations (V and H) and adaptively updates four FIR filters using the
+    CMA cost function.
+
+    Args
+    ----
+        signal (torch.Tensor): Input signal of shape (n_ch, 2, n_samples)
+        k (int): Oversampling factor (samples per symbol)
+        taps (int): Number of taps in each FIR filter
+        eta (float): CMA step size (learning rate)
+        qam_order (int): QAM modulation order (e.g., 16, 64)
+        norm (bool): If True, constellation is normalized to unit power
+        device (torch.device): PyTorch device (e.g., 'cuda' or 'cpu')
+        spike (int): Index of tap to initialize as a delta (1 + 0j), default=0
+        n_iter_sing (int): Iteration to trigger singularity reset on y₂ filters
+
+    Returns
+    -------
+        torch.Tensor: Equalized signal, shape (n_ch, 2, n_symbols)
+
+    Notes
+    -----
+        - The CMA equalizer minimizes the deviation from a constant modulus.
+        - This version assumes two polarizations and uses 2×2 adaptive
+          filtering.
+        - Filter tap matrices:
+              y₀ = w₀ᵥ * xᵥ + w₀ₕ * xₕ
+              y₁ = w₁ᵥ * xᵥ + w₁ₕ * xₕ
+        - After 'n_iter_sing' steps, the second output filters are
+          reinitialized from the first to avoid degenerate convergence.
+    """
+    # Get the number of channels, polarizations, and samples
+    n_ch, n_pol, n_s = signal.shape
+
+    # Number ofsymbolsafter equalization
+    n_s_e = int(n_s / k)
+
+    # Compute the CMA radius of the contellations
+    r = __square_qam_cma_radius(qam_order, norm)
+
+    # Create filters
+    w_0_v = zeros((n_ch, taps), dtype=cfloat, device=device)
+    w_1_v = zeros((n_ch, taps), dtype=cfloat, device=device)
+    w_0_h = zeros((n_ch, taps), dtype=cfloat, device=device)
+    w_1_h = zeros((n_ch, taps), dtype=cfloat, device=device)
+
+    # Initialize the vertical channel (regarding y_1)
+    w_0_v[:, spike] += 1 + 0j
+
+    # Create FIFOs
+    fifo = zeros((n_ch, n_pol, taps), dtype=cfloat, device=device)
+
+    # Create outputs
+    y = zeros((n_ch, n_pol, n_s_e), dtype=cfloat, device=device)
+
+    for ii in range(0, n_s_e):
+
+        # Insert the first element in the FIFO
+        fifo = roll(fifo, shifts=k, dims=-1)
+        fifo[..., 0] = signal[..., int(ii * k)]
+        fifo[..., 1] = signal[..., int(ii * k + 1)]
+
+        # Update the outputs
+        y[:, 0, ii] = sum_torch(w_0_v * fifo[:, 0, :] +
+                                w_0_h * fifo[:, 1, :], dim=-1)
+
+        y[:, 1, ii] = sum_torch(w_1_v * fifo[:, 0, :] +
+                                w_1_h * fifo[:, 1, :], dim=-1)
+
+        # auxiliar computation
+        aux = (r - abs_torch(y[..., ii])**2) * y[..., ii]
+
+        # Update the filters
+        w_0_v += eta * fifo[:, 0, :].conj() * aux[:, 0].unsqueeze(-1)
+
+        w_0_h += eta * fifo[:, 1, :].conj() * aux[:, 0].unsqueeze(-1)
+
+        w_1_v += eta * fifo[:, 0, :].conj() * aux[:, 1].unsqueeze(-1)
+
+        w_1_h += eta * fifo[:, 1, :].conj() * aux[:, 1].unsqueeze(-1)
+
+        # Reinitialize the filters of y2 to avoid singularities
+        if ii == n_iter_sing:
+            w_1_h = flip(w_0_v, dims=(-1,)).conj()
+            w_1_v = -flip(w_0_h, dims=(-1,)).conj()
+
+    return y
+
+
+def __square_qam_cma_radius(qam_order, normalized=True):
+    """
+    Compute the ideal CMA radius for a square QAM constellation.
+
+    The CMA radius is defined as:
+        R = E[|x|^4] / E[|x|^2]
+    where x are the QAM constellation points. This radius is used in the CMA
+    error function to guide adaptive equalization.
+
+    Args
+    ----
+        qam_order (int): QAM modulation order (e.g., 4, 16, 64, 256)
+        normalized (bool): If True, normalize constellation to unit average
+        power
+
+    Returns
+    -------
+        float: The ideal CMA radius for the specified QAM order
+    """
+    levels = int(qam_order ** 0.5)
+    axis = arange(levels, dtype=float32)
+    axis = 2 * axis - (levels - 1)  # Center constellation at 0
+
+    # Meshgrid over I and Q
+    I, Q = meshgrid(axis, axis, indexing='ij')
+    constellation = I + 1j * Q
+
+    # Flatten to 1D tensor
+    symbols = constellation.reshape(-1)
+
+    if normalized:
+        power = mean(abs_torch(symbols) ** 2)
+        symbols = symbols / sqrt(power)
+
+    # Compute the radius
+    radius = mean(abs_torch(symbols) ** 4) / mean(abs_torch(symbols) ** 2)
+
+    return radius
