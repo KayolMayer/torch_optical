@@ -15,7 +15,8 @@ from torch import sum as sum_torch
 # =============================================================================
 
 
-def laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
+def laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, delta_f,
+             seed, device):
     """
     Generate a multi-channel optical laser signal with optional phase noise.
 
@@ -30,6 +31,7 @@ def laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
         lw (float): Laser linewidth (Hz). If > 0, phase noise is added.
         f_grid (torch.Tensor): 1D tensor of center frequencies per
                                channel (Hz), shape (n_ch,).
+        delta_f (float): Carrier frequency shift (Hz)
         seed (int): Random seed for reproducibility.
         device (torch.device): Target device (e.g., torch.device('cuda')).
 
@@ -43,9 +45,6 @@ def laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
 
     # discrete time index
     n = arange(0, n_s, dtype=float32, device=device)
-
-    # Sampling frequency
-    fs = sr * k
 
     # Calculating the linear power of the continuous wave:
     pcw_linear = tensor(10 ** ((power_dbm - 30) / 10), dtype=float32,
@@ -74,9 +73,12 @@ def laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
         E = E * phase_noise.repeat(1, n_pol, 1)
 
     # Apply frequency shift per channel (frequency grid)
-    phase_c = exp(1j * 2 * pi * f_grid.view(-1, 1, 1) * n / fs)
-    E = E * phase_c
+    phase_c = exp(2j * pi * f_grid.view(-1, 1, 1) * n * T)
 
+    # Apply a constant frequency offset
+    phase_df = exp(-2j * pi * delta_f * n * T)
+
+    E = E * phase_c * phase_df
     return E
 
 

@@ -9,13 +9,14 @@ from torch import tensor
 from packages.data_streams import random_bit_sequence, bit_to_qam, \
     qam_to_bit, denorm_qam_power, quantization_qam
 from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
-    matched_filter, down_sampling
-from packages.opt_tx import laser_tx, iqModulator, mux
+    matched_filter
+from packages.opt_tx import laser_tx, iqModulator
 from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
 from packages.fiber import ssmf, simple_ssmf
 from packages.equalizers import cd_equalization, cma_equalization
+from packages.frequency_recovery import freq_rec_4th_power
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot, figure
 
@@ -34,6 +35,7 @@ system_par = {
     'n_ch': 1,
     'n_pol': 2,
     'n_bits': 80000,
+    'pmd_eq_convergence_symbs': 10000,  # Symbols considered for convergence
     'rand': 1525,
     'm_qam': 4,
     'sr': 40e9,
@@ -46,8 +48,10 @@ system_par = {
     'alpha': 0.2,  # RRC rolloff
     'tx_laser_power_dbm': 0,
     'tx_laser_lw': 10e3,
+    'tx_laser_freq_shift': 0e6,  # Frequency shift in the laser [Hz]
     'rx_laser_power_dbm': 0,
     'rx_laser_lw': 10e3,
+    'rx_laser_freq_shift': 100e6,  # Frequency shift in the laser [Hz]
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
     'min_exc': -1.2,  # -1.2 * vpi
@@ -118,6 +122,7 @@ laser_tx = laser_tx(system_par['n_ch'], system_par['n_pol'],
                     system_par['tx_laser_power_dbm'],
                     system_par['sr'], system_par['k_up'],
                     system_par['tx_laser_lw'], tensor(0),
+                    system_par['tx_laser_freq_shift'],
                     system_par['rand'], device)
 
 # Apply the signal of all channels to the IQ modulator
@@ -142,8 +147,8 @@ sig_ch = edfa(sig_tx, system_par['nf_db_boost'], system_par['gain_db_boost'],
               device)
 
 # Fiber
-#sig_ch = ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
-#              **system_par)
+# sig_ch = ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
+#               **system_par)
 sig_ch = simple_ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
                      **system_par)
 
@@ -164,6 +169,7 @@ laser_rx = laser_rx(system_par['n_ch'], system_par['n_pol'],
                     system_par['rx_laser_power_dbm'],
                     system_par['sr'], system_par['k_up'],
                     system_par['rx_laser_lw'], tensor(0),
+                    system_par['rx_laser_freq_shift'],
                     system_par['rand']*1000, device)
 
 # Apply the optical front end to recover the vertical and horizontal pols
@@ -191,7 +197,7 @@ symb_data_deskew = deskew(symb_data_adc, system_par['adc_samples'],
 # Gram-Schmidt Orthogonalization
 symb_data_gsop = gsop(symb_data_deskew)
 
-# CD compensation
+# CD compensation (Static Equalization)
 symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
                                 system_par['fiber_len_km'],
                                 system_par['center_freq'] + freq_grid,
@@ -200,28 +206,33 @@ symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
                                 system_par['cdc_n_fft'],
                                 system_par['cdc_fft_overlap'], device)
 
+# PMD Equalization (Dynamic Equalization)
 symb_data_pmdc = cma_equalization(symb_data_cdc, system_par['adc_samples'],
                                   system_par['pmd_eq_taps'],
                                   system_par['pmd_eq_eta'],
+                                  system_par['pmd_eq_convergence_symbs'],
                                   system_par['m_qam'],
                                   system_par['norm'], device)
 
-# Downsampling of the symbols
-#symb_data_down = down_sampling(symb_data_cdc, system_par['adc_samples'])
+# Frequency recovery with 4-th power algorithm
+symb_data_fr = freq_rec_4th_power(symb_data_pmdc,
+                                  system_par['sr'],
+                                  system_par['pmd_eq_convergence_symbs'],
+                                  device)
 
 # Denormalize the QAM signal to the constellation power
-symb_data_rx = denorm_qam_power(symb_data_pmdc, qam_order=system_par['m_qam'])
+symb_data_rx = denorm_qam_power(symb_data_fr, qam_order=system_par['m_qam'])
 
 # Quantize the symbols to the reference constellations
-#symb_data_rx = quantization_qam(symb_data_rx, system_par['m_qam'], device)
+# symb_data_rx = quantization_qam(symb_data_rx, system_par['m_qam'], device)
 
 # Demodulate symbols to the respective bits
-#bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
+# bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
 
 figure(1)
-scatter(symb_data_rx[:,0,-5000:].real, symb_data_rx[:,0,-5000:].imag)
+scatter(symb_data_rx[:,0,-1000:].real, symb_data_rx[:,0,-1000:].imag)
 
 figure(2)
-scatter(symb_data_rx[:,1,-5000:].real, symb_data_rx[:,1,-5000:].imag)
+scatter(symb_data_rx[:,1,-1000:].real, symb_data_rx[:,1,-1000:].imag)
 
 # plot(symb_data_up_filt_m[0,0,0:1000].real)

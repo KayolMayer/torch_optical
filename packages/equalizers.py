@@ -8,7 +8,7 @@ Created on Fri Apr 25 13:35:51 2025.
 # ================================= Libraries =================================
 # =============================================================================
 from torch import tensor, ceil, cat, reshape, zeros, cfloat, float32, arange, \
-    exp, pi, roll, meshgrid, mean, sqrt, flip
+    exp, pi, roll, meshgrid, mean, sqrt, flip, floor
 from torch import sum as sum_torch
 from torch import abs as abs_torch
 from torch.fft import fft, fftshift, ifft, ifftshift
@@ -164,8 +164,8 @@ def __overlap_cdc(signal, n_fft, n_over, h_freq_cd, device):
     return out
 
 
-def cma_equalization(signal, k, taps, eta, qam_order, norm, device, spike=0,
-                     n_iter_sing=5000):
+def cma_equalization(signal, k, taps, eta, convergence, qam_order, norm,
+                     device):
     """
     Perform Constant Modulus Algorithm (CMA) equalization.
 
@@ -179,11 +179,10 @@ def cma_equalization(signal, k, taps, eta, qam_order, norm, device, spike=0,
         k (int): Oversampling factor (samples per symbol)
         taps (int): Number of taps in each FIR filter
         eta (float): CMA step size (learning rate)
+        convergence (int): Number of epochs considered for total convergence
         qam_order (int): QAM modulation order (e.g., 16, 64)
         norm (bool): If True, constellation is normalized to unit power
         device (torch.device): PyTorch device (e.g., 'cuda' or 'cpu')
-        spike (int): Index of tap to initialize as a delta (1 + 0j), default=0
-        n_iter_sing (int): Iteration to trigger singularity reset on y₂ filters
 
     Returns
     -------
@@ -197,8 +196,8 @@ def cma_equalization(signal, k, taps, eta, qam_order, norm, device, spike=0,
         - Filter tap matrices:
               y₀ = w₀ᵥ * xᵥ + w₀ₕ * xₕ
               y₁ = w₁ᵥ * xᵥ + w₁ₕ * xₕ
-        - After 'n_iter_sing' steps, the second output filters are
-          reinitialized from the first to avoid degenerate convergence.
+        - The second output filters are reinitialized from the first to avoid
+          degenerate convergence.
     """
     # Get the number of channels, polarizations, and samples
     n_ch, n_pol, n_s = signal.shape
@@ -215,8 +214,8 @@ def cma_equalization(signal, k, taps, eta, qam_order, norm, device, spike=0,
     w_0_h = zeros((n_ch, taps), dtype=cfloat, device=device)
     w_1_h = zeros((n_ch, taps), dtype=cfloat, device=device)
 
-    # Initialize the vertical channel (regarding y_1)
-    w_0_v[:, spike] += 1 + 0j
+    # Initialize the vertical channel with single spike (regarding y_1)
+    w_0_v[:, int(floor(tensor(taps / 2)))] += 1 + 0j
 
     # Create FIFOs
     fifo = zeros((n_ch, n_pol, taps), dtype=cfloat, device=device)
@@ -251,7 +250,8 @@ def cma_equalization(signal, k, taps, eta, qam_order, norm, device, spike=0,
         w_1_h += eta * fifo[:, 1, :].conj() * aux[:, 1].unsqueeze(-1)
 
         # Reinitialize the filters of y2 to avoid singularities
-        if ii == n_iter_sing:
+        if ii == int(convergence / 2):
+
             w_1_h = flip(w_0_v, dims=(-1,)).conj()
             w_1_v = -flip(w_0_h, dims=(-1,)).conj()
 

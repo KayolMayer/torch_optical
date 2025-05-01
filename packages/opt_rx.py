@@ -15,7 +15,8 @@ from torch.nn.functional import grid_sample, conv1d
 # =============================================================================
 
 
-def laser_rx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
+def laser_rx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, delta_f, seed,
+             device):
     """
     Generate a multi-channel optical laser signal with optional phase noise.
 
@@ -30,6 +31,7 @@ def laser_rx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
         lw (float): Laser linewidth (Hz). If > 0, phase noise is added.
         f_grid (torch.Tensor): 1D tensor of center frequencies per
                                channel (Hz), shape (n_ch,).
+        delta_f (float): Carrier frequency shift (Hz)
         seed (int): Random seed for reproducibility.
         device (torch.device): Target device (e.g., torch.device('cuda')).
 
@@ -38,7 +40,8 @@ def laser_rx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device):
         torch.Tensor: Complex tensor of shape (n_ch, n_pol, n_s) representing
                       the laser waveform.
     """
-    E = laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, seed, device)
+    E = laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, delta_f, seed,
+                 device)
 
     return E
 
