@@ -7,7 +7,7 @@ Created on Tue Apr 15 16:22:19 2025.
 from torch.cuda import is_available
 from torch import tensor
 from packages.data_streams import random_bit_sequence, bit_to_qam, \
-    qam_to_bit, denorm_qam_power, quantization_qam
+    qam_to_bit, denorm_qam_power, quantization_qam, synchronization
 from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
     matched_filter
 from packages.opt_tx import laser_tx, iqModulator
@@ -48,10 +48,10 @@ system_par = {
     'filt_symb': 20,
     'alpha': 0.2,  # RRC rolloff
     'tx_laser_power_dbm': 0,
-    'tx_laser_lw': 30e3,
+    'tx_laser_lw': 10e3,
     'tx_laser_freq_shift': 0e6,  # Frequency shift in the laser [Hz]
     'rx_laser_power_dbm': 0,
-    'rx_laser_lw': 30e3,
+    'rx_laser_lw': 10e3,
     'rx_laser_freq_shift': 100e6,  # Frequency shift in the laser [Hz]
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
@@ -223,6 +223,7 @@ symb_data_fr = freq_rec_4th_power(symb_data_pmdc,
                                   system_par['pmd_eq_convergence_symbs'],
                                   device)
 
+# Phase recovery
 symb_data_pr = phase_recovery_bps(symb_data_fr, system_par['m_qam'],
                                   system_par['bps_n_symbs'],
                                   system_par['bps_n_phases'], device)
@@ -233,8 +234,19 @@ symb_data_rx = denorm_qam_power(symb_data_pr, qam_order=system_par['m_qam'])
 # Quantize the symbols to the reference constellations
 symb_data_rx = quantization_qam(symb_data_rx, system_par['m_qam'], device)
 
+# Denormalize the QAM signal to the constellation power
+symb_data_tx = denorm_qam_power(symb_data_tx, qam_order=system_par['m_qam'])
+
+# Quantize the symbols to the reference constellations
+symb_data_tx = quantization_qam(symb_data_tx, system_par['m_qam'], device)
+
+# Synchronized sequences
+tx_sync, rx_sync = synchronization(symb_data_tx, symb_data_rx, device)
+
+
 # Demodulate symbols to the respective bits
-bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
+#bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
+
 
 #figure(1)
 #scatter(symb_data_rx[:,0,-1000:].real, symb_data_rx[:,0,-1000:].imag)

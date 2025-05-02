@@ -8,9 +8,12 @@ Created on Tue April 15 16:07:28 2025.
 # ================================= Libraries =================================
 # =============================================================================
 from torch import manual_seed, randint, reshape, arange, uint8, cat, tensor, \
-    long, sqrt, cumsum, roll, mean, argmin, float32, meshgrid, log2
+    long, sqrt, cumsum, roll, mean, argmin, float32, meshgrid, log2, zeros, \
+    flip, cfloat
 from torch import sum as sum_torch
 from torch import abs as abs_torch
+from torch import max as max_torch
+from packages.utils import p_corr
 # =============================================================================
 # =============================================================================
 
@@ -576,3 +579,70 @@ def quantization_qam(qam_tensor, qam_order, device):
     quant_symbols = quant_i + 1j*quant_q
 
     return quant_symbols
+
+
+def __synchronization(tx_tensor, rx_tensor, device, max_shift=200):
+
+    # Get the number of channels, polarizations, and samples
+    n_ch, n_pol, n_s = tx_tensor.shape
+
+    # Number os symbols used to compute the correlation
+    n_corr = n_s - 2 * max_shift
+
+    # Tensor of correlations
+    corr = zeros((n_ch, n_pol, max_shift * 2 + 1), dtype=float32,
+                 device=device)
+
+    # Loop through the shifts
+    for ii in range(-max_shift, max_shift + 1):
+        corr[..., ii + max_shift] = p_corr(tx_tensor[..., max_shift: n_corr],
+                                           rx_tensor[..., max_shift + ii:
+                                                     n_corr + ii])
+
+    # Positions that maximize
+    val, pos = max_torch(corr, dim=-1)
+
+    return pos - max_shift, sum_torch(val, dim=-1)
+
+
+def synchronization(tx_tensor, rx_tensor, device, max_shift=200):
+
+    # Get the number of channels, polarizations, and samples
+    n_ch, n_pol, n_s = tx_tensor.shape
+
+    # Get synchronization without invert polarizations
+    pos_d, val_d = __synchronization(tx_tensor, rx_tensor, device, max_shift)
+
+    # Get synchronization inverting polarizations
+    pos_i, val_i = __synchronization(tx_tensor, flip(rx_tensor, [-2]), device,
+                                     max_shift)
+
+    # Positions to discard to keep both tensors with the same dimension
+    n_pos = int(max_torch(tensor([max_torch(abs_torch(pos_d[ch]))
+                                  if val_d[ch] >= val_i[ch]
+                                  else max_torch(abs_torch(pos_i[ch]))
+                                  for ch in range(n_ch)])))
+
+    # Length of output tensors
+    n_out = n_s - 2 * n_pos
+
+    # Initialize the output tx and rx
+    tx_out = tx_tensor[..., n_pos: n_out + n_pos]
+    rx_out = zeros((n_ch, n_pol, n_out), dtype=cfloat, device=device)
+
+    # For each channel
+    for ch in range(n_ch):
+
+        if val_d[ch] >= val_i[ch]:
+
+            rx_out[ch, 0, :] = rx_tensor[ch, 0, n_pos + pos_d[ch, 0]:
+                                         n_out + n_pos + pos_d[ch, 0]]
+            rx_out[ch, 1, :] = rx_tensor[ch, 1, n_pos + pos_d[ch, 1]:
+                                         n_out + n_pos + pos_d[ch, 1]]
+        else:
+            rx_out[ch, 0, :] = rx_tensor[ch, 1, n_pos + pos_i[ch, 0]:
+                                         n_out + n_pos + pos_i[ch, 0]]
+            rx_out[ch, 1, :] = rx_tensor[ch, 0, n_pos + pos_i[ch, 1]:
+                                         n_out + n_pos + pos_i[ch, 1]]
+
+    return tx_out, rx_out
