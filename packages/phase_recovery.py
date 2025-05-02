@@ -7,8 +7,7 @@ Created on Fri May  2 10:55:51 2025.
 # =============================================================================
 # ================================= Libraries =================================
 # =============================================================================
-from torch import pi, arange, float32, zeros, exp, roll, cfloat, cat, argmin, \
-    floor
+from torch import pi, arange, float32, zeros, exp, cat, argmin, floor
 from torch import sum as sum_torch
 from torch import abs as abs_torch
 from packages.data_streams import quantization_qam, denorm_qam_power, \
@@ -18,7 +17,37 @@ from packages.data_streams import quantization_qam, denorm_qam_power, \
 
 
 def phase_recovery_bps(signal, qam_order, n_symb, n_test, device):
+    """
+    Perform phase recovery using the Blind Phase Search (BPS) algorithm.
 
+    This method evaluates multiple candidate carrier phases for each symbol,
+    applies hard decisions to each rotated signal, and selects the phase that
+    minimizes the mean squared error between the rotated signal and its nearest
+    constellation point. It then unwraps the estimated phase trajectory and
+    compensates the input signal accordingly.
+
+    Args
+    -----
+        signal (torch.Tensor): Input complex signal,
+                               shape (n_ch, n_pol, n_samples)
+        qam_order (int): QAM modulation order (e.g., 4, 16, 64)
+        n_symb (int): Half window size for error averaging
+                      (total window = 2*n_symb+1)
+        n_test (int): Number of test phase angles (uniformly spaced over π/2)
+        device (torch.device): PyTorch device to run on (e.g., "cuda")
+
+    Returns
+    -------
+        torch.Tensor: Phase-corrected signal, same shape as input
+
+    Notes
+    -----
+        - Assumes square QAM with π/2 rotational symmetry (i.e., 4-fold).
+        - Applies sliding window averaging to smooth error estimates.
+        - Performs phase unwrapping to ensure continuity in the estimated
+          phase.
+        - Relies on a hard-decision function to quantize symbols.
+    """
     # Normalize the input signal
     signal = norm_qam_power(signal, 'power', qam_order)
 
@@ -78,8 +107,31 @@ def phase_recovery_bps(signal, qam_order, n_symb, n_test, device):
 
     return out
 
-def __hard_decision(signal, qam_order, device):
 
+def __hard_decision(signal, qam_order, device):
+    """
+    Apply hard-decision quantization to a QAM signal.
+
+    The input signal is first denormalized to match the native power of the
+    QAM constellation, then quantized to the nearest valid QAM symbol, and
+    finally normalized back (if required) for consistent output power.
+
+    Args
+    ----
+        signal (torch.Tensor): Input signal (complex-valued), shape (...,)
+        qam_order (int): QAM modulation order (must be a square, e.g., 16, 64)
+        device (torch.device): Device on which to perform computation
+
+    Returns
+    -------
+        torch.Tensor: Hard-decision quantized signal (same shape as input)
+
+    Notes
+    -----
+        - This function supports square QAM constellations only.
+        - Uses minimum-distance quantization via 'quantization_qam()'.
+        - Normalization uses the known analytical average QAM power.
+    """
     # Denormalize symbols to the square QAM power
     sig_denorm = denorm_qam_power(signal, qam_order)
 

@@ -231,15 +231,15 @@ symb_data_pr = phase_recovery_bps(symb_data_fr, system_par['m_qam'],
 symb_data_rx = denorm_qam_power(symb_data_pr, qam_order=system_par['m_qam'])
 
 # Quantize the symbols to the reference constellations
-# symb_data_rx = quantization_qam(symb_data_rx, system_par['m_qam'], device)
+symb_data_rx = quantization_qam(symb_data_rx, system_par['m_qam'], device)
 
 # Demodulate symbols to the respective bits
-# bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
+bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
 
-figure(1)
-scatter(symb_data_rx[:,0,-1000:].real, symb_data_rx[:,0,-1000:].imag)
+#figure(1)
+#scatter(symb_data_rx[:,0,-1000:].real, symb_data_rx[:,0,-1000:].imag)
 
-figure(2)
-scatter(symb_data_rx[:,1,-1000:].real, symb_data_rx[:,1,-1000:].imag)
+#figure(2)
+#scatter(symb_data_rx[:,1,-1000:].real, symb_data_rx[:,1,-1000:].imag)
 
 # plot(symb_data_up_filt_m[0,0,0:1000].real)

@@ -97,6 +97,7 @@ def simple_ssmf(signal, fc, device, **kwargs):
     """
     # Get the number of polarizations
     n_pol = signal.shape[1]
+
     # Apply nonlinearity
     signal = __nonlinear_phase_shift(signal, kwargs['fiber_len_km'],
                                      kwargs['fiber_gamma'], device)
