@@ -17,6 +17,7 @@ from packages.amplifier import edfa
 from packages.fiber import ssmf, simple_ssmf
 from packages.equalizers import cd_equalization, cma_equalization
 from packages.frequency_recovery import freq_rec_4th_power
+from packages.phase_recovery import phase_recovery_bps
 from packages.utils import get_freq_grid
 from matplotlib.pyplot import scatter, plot, figure
 
@@ -47,10 +48,10 @@ system_par = {
     'filt_symb': 20,
     'alpha': 0.2,  # RRC rolloff
     'tx_laser_power_dbm': 0,
-    'tx_laser_lw': 10e3,
+    'tx_laser_lw': 30e3,
     'tx_laser_freq_shift': 0e6,  # Frequency shift in the laser [Hz]
     'rx_laser_power_dbm': 0,
-    'rx_laser_lw': 10e3,
+    'rx_laser_lw': 30e3,
     'rx_laser_freq_shift': 100e6,  # Frequency shift in the laser [Hz]
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
@@ -67,8 +68,10 @@ system_par = {
     'cdc_fft_overlap': 64,  # Number of samples of overlaping computing the FFT
     'pmd_eq_taps': 15,  # Number of taps of the PMD equalizer
     'pmd_eq_eta': 1e-4,  # Learning rate of the adaptive equalizer
+    'bps_n_symbs': 32,  # Number of symbols to consider in the sum of the BPS
+    'bps_n_phases': 64,  # Number of phases to test
     'nf_db_boost': 5.5,  # Booster noise figure in dB
-    'gain_db_boost': 20,  # Booster gain in dB
+    'gain_db_boost': 22,  # Booster gain in dB
     'fiber_len_km': 80,  # Fiber length [km]
     'fiber_att_db_km': 0.2,  # Fiber attenuation [dB/km]
     'fiber_gamma': 1.27,  # Nonlinear Coefficient [1/W/km]
@@ -220,8 +223,12 @@ symb_data_fr = freq_rec_4th_power(symb_data_pmdc,
                                   system_par['pmd_eq_convergence_symbs'],
                                   device)
 
+symb_data_pr = phase_recovery_bps(symb_data_fr, system_par['m_qam'],
+                                  system_par['bps_n_symbs'],
+                                  system_par['bps_n_phases'], device)
+
 # Denormalize the QAM signal to the constellation power
-symb_data_rx = denorm_qam_power(symb_data_fr, qam_order=system_par['m_qam'])
+symb_data_rx = denorm_qam_power(symb_data_pr, qam_order=system_par['m_qam'])
 
 # Quantize the symbols to the reference constellations
 # symb_data_rx = quantization_qam(symb_data_rx, system_par['m_qam'], device)
