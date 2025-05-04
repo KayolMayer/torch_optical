@@ -7,12 +7,13 @@ Created on Tue April 15 16:07:28 2025.
 # =============================================================================
 # ================================= Libraries =================================
 # =============================================================================
-from torch import manual_seed, randint, reshape, arange, uint8, cat, tensor, \
+from torch import manual_seed, randint, reshape, arange, int8, cat, tensor, \
     long, sqrt, cumsum, roll, mean, argmin, float32, meshgrid, log2, zeros, \
-    flip, cfloat
+    flip, cfloat, pi, exp
 from torch import sum as sum_torch
 from torch import abs as abs_torch
 from torch import max as max_torch
+from torch import round as round_torch
 from packages.utils import p_corr
 # =============================================================================
 # =============================================================================
@@ -141,7 +142,7 @@ def bit_to_qam(bit_tensor, qam_order, device, gray=True, norm=True):
 
     Example
     -------
-        >>> bits = torch.randint(0, 2, (2, 2, 240), dtype=torch.uint8)
+        >>> bits = torch.randint(0, 2, (2, 2, 240), dtype=torch.int8)
         >>> qam = bit_to_qam(bits, qam_order=16, device=torch.device("cpu"))
         >>> print(qam.shape)
         torch.Size([2, 2, 60])
@@ -250,7 +251,7 @@ def __gray_to_binary(bit_tensor):
         bit_tensor (torch.Tensor): Tensor of 0s and 1s representing Gray code.
                                    Can be of any shape, as long as the last
                                    dimension is the bit sequence. Dtype must be
-                                   torch.uint8 or torch.long.
+                                   torch.int8 or torch.long.
 
     Returns
     -------
@@ -259,12 +260,12 @@ def __gray_to_binary(bit_tensor):
 
     Example
     -------
-        >>> gray = torch.tensor([1, 1, 1, 0], dtype=torch.uint8)
+        >>> gray = torch.tensor([1, 1, 1, 0], dtype=torch.int8)
         >>> binary = gray_to_binary(gray)
-        >>> print(binary)  # tensor([1, 0, 1, 1], dtype=torch.uint8)
+        >>> print(binary)  # tensor([1, 0, 1, 1], dtype=torch.int8)
     """
     # Ensure tensor is of integer type
-    bit_tensor = bit_tensor.to(uint8)
+    bit_tensor = bit_tensor.to(int8)
 
     # Cumulative XOR using binary logic: binary[i] = gray[0] ^ gray[1] ^ ...
     #                                    ^ gray[i]
@@ -283,7 +284,7 @@ def __binary_to_gray(bin_tensor):
 
     Args
     ----
-        bin_tensor (torch.Tensor): A tensor of 0s and 1s (dtype must be uint8
+        bin_tensor (torch.Tensor): A tensor of 0s and 1s (dtype must be int8
                                    or convertible), shape can be (..., n_bits),
                                    where the last dimension is the bit
                                    sequence.
@@ -291,21 +292,21 @@ def __binary_to_gray(bin_tensor):
     Returns
     -------
         torch.Tensor: A tensor of the same shape as 'bin_tensor', containing
-                      the Gray-coded bits (dtype: uint8).
+                      the Gray-coded bits (dtype: int8).
 
     Example
     -------
-        >>> binary = torch.tensor([1, 0, 1, 1], dtype=torch.uint8)
+        >>> binary = torch.tensor([1, 0, 1, 1], dtype=torch.int8)
         >>> gray = __binary_to_gray(binary)
-        >>> print(gray)  # tensor([1, 1, 1, 0], dtype=torch.uint8)
+        >>> print(gray)  # tensor([1, 1, 1, 0], dtype=torch.int8)
 
-        >>> batch = torch.tensor([[0, 1, 1], [1, 0, 0]], dtype=torch.uint8)
+        >>> batch = torch.tensor([[0, 1, 1], [1, 0, 0]], dtype=torch.int8)
         >>> __binary_to_gray(batch)
         tensor([[0, 1, 0],
-                [1, 1, 0]], dtype=torch.uint8)
+                [1, 1, 0]], dtype=torch.int8)
     """
     # Ensure tensor is of integer type
-    bin_tensor = bin_tensor.to(uint8)
+    bin_tensor = bin_tensor.to(int8)
 
     # Shifted version of binary (append 0 at the start of each bit sequence)
     shifted = roll(bin_tensor, shifts=1, dims=-1)
@@ -340,7 +341,7 @@ def __binary_to_decimal(bit_tensor, device):
 
     Example
     -------
-        >>> bits = torch.tensor([[[[1, 0, 1]]]], dtype=torch.uint8)
+        >>> bits = torch.tensor([[[[1, 0, 1]]]], dtype=torch.int8)
         >>> dec = __binary_to_decimal(bits, device=torch.device("cpu"))
         >>> print(dec)
         tensor([[[5]]])
@@ -360,7 +361,7 @@ def __decimal_to_binary(dec_tensor, n_bits, device):
     ----
         dec_tensor (torch.Tensor): A tensor of non-negative integers.
                                    Shape: (..., 1), can be float or int (will
-                                   be cast to uint8).
+                                   be cast to int8).
         n_bits (int): Number of bits to represent each decimal number.
         device (torch.device): Device to perform the operation (CPU or CUDA).
 
@@ -368,22 +369,22 @@ def __decimal_to_binary(dec_tensor, n_bits, device):
     -------
         torch.Tensor: A tensor of binary values (0s and 1s) with shape
                       (..., n_bits),
-                      dtype: torch.uint8. Bits are ordered from MSB to LSB.
+                      dtype: torch.int8. Bits are ordered from MSB to LSB.
 
     Example
     -------
-        >>> dec = torch.tensor([3, 5], dtype=torch.uint8)
+        >>> dec = torch.tensor([3, 5], dtype=torch.int8)
         >>> __decimal_to_binary(dec, n_bits=4, device=torch.device("cpu"))
         tensor([[0, 0, 1, 1],
-                [0, 1, 0, 1]], dtype=torch.uint8)
+                [0, 1, 0, 1]], dtype=torch.int8)
     """
     # Ensure tensor is of integer type
-    dec_tensor = dec_tensor.to(uint8)
+    dec_tensor = dec_tensor.to(int8)
 
     powers = 2 ** arange(n_bits - 1, -1, -1, device=device)
 
     # Unsqueeze to match broadcasting: (..., 1)&(num_bits,) => (..., num_bits)
-    binary = ((dec_tensor.unsqueeze(-1) & powers) > 0).to(uint8)
+    binary = ((dec_tensor.unsqueeze(-1) & powers) > 0).to(int8)
 
     return binary
 
@@ -582,7 +583,37 @@ def quantization_qam(qam_tensor, qam_order, device):
 
 
 def __synchronization(tx_tensor, rx_tensor, device, max_shift=200):
+    """
+    Compute the optimal time alignment between tx and rx signals.
 
+    Parameters
+    ----------
+    tx_tensor : torch.Tensor
+        Transmitted signal tensor of shape (n_ch, n_pol, n_s), where
+        n_ch is the number of channels,
+        n_pol is the number of polarizations (usually 2),
+        n_s is the number of symbols or samples.
+
+    rx_tensor : torch.Tensor
+        Received signal tensor of the same shape as tx_tensor.
+
+    device : torch.device
+        The device (CPU or CUDA) on which to perform computations.
+
+    max_shift : int, optional
+        The maximum absolute shift (in symbols) to search for synchronization.
+        The total search range is [-max_shift, max_shift]. Default is 200.
+
+    Returns
+    -------
+    pos : torch.Tensor
+        Tensor of shape (n_ch, n_pol) containing the optimal shift positions
+        that maximize the correlation for each channel and polarization.
+
+    val : torch.Tensor
+        Tensor of shape (n_ch,) containing the total correlation values
+        (summed over polarizations) for the best shifts in each channel.
+    """
     # Get the number of channels, polarizations, and samples
     n_ch, n_pol, n_s = tx_tensor.shape
 
@@ -606,7 +637,23 @@ def __synchronization(tx_tensor, rx_tensor, device, max_shift=200):
 
 
 def synchronization(tx_tensor, rx_tensor, device, max_shift=200):
+    """
+    Find best synchronization shifts per channel and polarization based on MSE.
 
+    Args
+    ----
+        tx_tensor (torch.Tensor): Transmitted signal of
+                                  shape (n_ch, n_pol, n_s).
+        rx_tensor (torch.Tensor): Received signal of same shape.
+        device (torch.device): Torch device.
+        max_shift (int): Max number of samples to search for alignment.
+
+    Returns
+    -------
+        shifts (torch.Tensor): Optimal shift per channel and polarization
+                               (n_ch, n_pol).
+        values (torch.Tensor): Similarity (1 / MSE) per channel (n_ch,).
+    """
     # Get the number of channels, polarizations, and samples
     n_ch, n_pol, n_s = tx_tensor.shape
 
@@ -646,3 +693,45 @@ def synchronization(tx_tensor, rx_tensor, device, max_shift=200):
                                          n_out + n_pos + pos_i[ch, 1]]
 
     return tx_out, rx_out
+
+
+def derotation(tx_tensor, rx_tensor, device):
+    """
+    Perform phase derotation of the received signal.
+
+    It is performed by testing four quadrature phase shifts (0, π/2, π, 3π/2)
+    and selecting the one that minimizes the mean squared error (MSE) with
+    respect to the transmitted signal.
+
+    Parameters
+    ----------
+    tx_tensor : torch.Tensor
+        Transmitted complex-valued tensor of shape (n_ch, n_pol, n_samples).
+
+    rx_tensor : torch.Tensor
+        Received complex-valued tensor of the same shape as tx_tensor.
+
+    device : torch.device
+        Device on which the computation will be performed (CPU or GPU).
+
+    Returns
+    -------
+    out : torch.Tensor
+        Derotated and quantized complex-valued tensor of the same shape as
+        input, where the phase rotation that minimizes MSE is applied and
+        real/imaginary parts are rounded.
+    """
+    # tensor of rotations
+    rot = tensor([[0], [pi / 2], [pi], [3 * pi / 2]], dtype=cfloat,
+                 device=device)
+
+    # Difference of the transmitted data and rotated received data
+    dif = tx_tensor.unsqueeze(-2) - (rx_tensor.unsqueeze(-2) * exp(-1j * rot))
+
+    # MSE of rotations
+    mse = mean(abs_torch(dif) ** 2, dim=-1)
+
+    # Derotate the received tensor
+    out = rx_tensor * exp(-1j * rot[argmin(mse, dim=-1)])
+
+    return round_torch(out.real) + 1j * round_torch(out.imag)

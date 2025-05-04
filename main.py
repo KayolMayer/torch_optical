@@ -4,23 +4,27 @@ Created on Tue Apr 15 16:22:19 2025.
 @author: Kayol Mayer
 """
 
+# =============================================================================
+# ================================= Libraries =================================
+# =============================================================================
 from torch.cuda import is_available
 from torch import tensor
 from packages.data_streams import random_bit_sequence, bit_to_qam, \
-    qam_to_bit, denorm_qam_power, quantization_qam, synchronization
+    qam_to_bit, denorm_qam_power, quantization_qam, synchronization, derotation
 from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
     matched_filter
 from packages.opt_tx import laser_tx, iqModulator
 from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
-from packages.fiber import ssmf, simple_ssmf
+from packages.fiber import simple_ssmf
 from packages.equalizers import cd_equalization, cma_equalization
 from packages.frequency_recovery import freq_rec_4th_power
 from packages.phase_recovery import phase_recovery_bps
+from packages.metrics import ber_comp, ser_comp
 from packages.utils import get_freq_grid
-from matplotlib.pyplot import scatter, plot, figure
-
+# =============================================================================
+# =============================================================================
 
 # *****************************************************************************
 # *****************************************************************************
@@ -35,8 +39,8 @@ from matplotlib.pyplot import scatter, plot, figure
 system_par = {
     'n_ch': 1,
     'n_pol': 2,
-    'n_bits': 80000,
-    'pmd_eq_convergence_symbs': 10000,  # Symbols considered for convergence
+    'n_bits': 200000,
+    'pmd_eq_convergence_symbs': 50000,  # Symbols considered for convergence
     'rand': 1525,
     'm_qam': 4,
     'sr': 40e9,
@@ -48,10 +52,10 @@ system_par = {
     'filt_symb': 20,
     'alpha': 0.2,  # RRC rolloff
     'tx_laser_power_dbm': 0,
-    'tx_laser_lw': 10e3,
+    'tx_laser_lw': 30e3,
     'tx_laser_freq_shift': 0e6,  # Frequency shift in the laser [Hz]
     'rx_laser_power_dbm': 0,
-    'rx_laser_lw': 10e3,
+    'rx_laser_lw': 30e3,
     'rx_laser_freq_shift': 100e6,  # Frequency shift in the laser [Hz]
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
@@ -63,7 +67,7 @@ system_par = {
     'adc_samples': 2,  # Number of samples after the ADC
     'adc_f_error_ppm': 0.0,  # frequency error (ppm)
     'adc_phase_error': 0.0,  # phase error [-0.5,0.5]
-    'lagrange_order': 10,  # Number of lagrange coeeficients (usually 4 to 6)
+    'lagrange_order': 10,  # Number of lagrange coefficients (usually 4 to 6)
     'cdc_n_fft': 1024,  # FFT length to compensate CD
     'cdc_fft_overlap': 64,  # Number of samples of overlaping computing the FFT
     'pmd_eq_taps': 15,  # Number of taps of the PMD equalizer
@@ -150,8 +154,6 @@ sig_ch = edfa(sig_tx, system_par['nf_db_boost'], system_par['gain_db_boost'],
               device)
 
 # Fiber
-# sig_ch = ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
-#               **system_par)
 sig_ch = simple_ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
                      **system_par)
 
@@ -240,18 +242,26 @@ symb_data_tx = denorm_qam_power(symb_data_tx, qam_order=system_par['m_qam'])
 # Quantize the symbols to the reference constellations
 symb_data_tx = quantization_qam(symb_data_tx, system_par['m_qam'], device)
 
+# Adjust possible
+
 # Synchronized sequences
 tx_sync, rx_sync = synchronization(symb_data_tx, symb_data_rx, device)
 
+# Discard symbols before convergence and in the end because BPS
+tx_sync = tx_sync[..., system_par['pmd_eq_convergence_symbs']:
+                  -int(system_par['bps_n_phases'] / 2)]
+rx_sync = rx_sync[..., system_par['pmd_eq_convergence_symbs']:
+                  -int(system_par['bps_n_phases'] / 2)]
+
+# Derotate Rx streams
+rx_sync = derotation(tx_sync, rx_sync, device)
 
 # Demodulate symbols to the respective bits
-#bit_data_rx = qam_to_bit(symb_data_rx, system_par['m_qam'], device, gray=True)
+bit_tx_sync = qam_to_bit(tx_sync, system_par['m_qam'], device, gray=True)
+bit_rx_sync = qam_to_bit(rx_sync, system_par['m_qam'], device, gray=True)
 
+# SER computation
+ser = ser_comp(tx_sync, rx_sync)
 
-#figure(1)
-#scatter(symb_data_rx[:,0,-1000:].real, symb_data_rx[:,0,-1000:].imag)
-
-#figure(2)
-#scatter(symb_data_rx[:,1,-1000:].real, symb_data_rx[:,1,-1000:].imag)
-
-# plot(symb_data_up_filt_m[0,0,0:1000].real)
+# BER computation
+ber = ber_comp(bit_tx_sync, bit_rx_sync)

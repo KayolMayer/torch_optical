@@ -45,7 +45,12 @@ def get_freq_grid(nch, spacing):
 
 
 def p_corr(x, y):
+    """
+    Compute correlation between x and y across last dimension.
 
+    Input shape: (n_ch, n_pol, n_corr)
+    Output shape: (n_ch, n_pol)
+    """
     x_0 = x - mean(x, dim=-1, keepdim=True)
     y_0 = y - mean(y, dim=-1, keepdim=True)
 
