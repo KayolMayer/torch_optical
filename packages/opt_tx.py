@@ -54,11 +54,11 @@ def laser_tx(n_ch, n_pol, n_s, power_dbm, sr, k, lw, f_grid, delta_f,
     E = ones((n_ch, n_pol, n_s), dtype=float32, device=device) * \
         sqrt(pcw_linear / n_pol)
 
+    # Period between samples at the (oversampled) transmitted signal:
+    T = 1 / (k * sr)
+
     # If the linewidth is greater than 0 Hz
     if lw > 0:
-
-        # Period between samples at the (oversampled) transmitted signal:
-        T = 1 / (k * sr)
 
         # Calculating the phase noise:
         var = tensor(2 * pi * lw * T)

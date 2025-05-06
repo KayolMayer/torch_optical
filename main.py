@@ -12,7 +12,7 @@ from torch import tensor
 from packages.data_streams import random_square_qam_sequence, \
     qam_to_bit, denorm_qam_power, quantization_qam, synchronization, derotation
 from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
-    matched_filter
+    matched_filter, down_sampling
 from packages.opt_tx import laser_tx, iqModulator
 from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
@@ -43,8 +43,8 @@ system_par = {
     'n_symbols': 100000,
     'pmd_eq_convergence_symbs': 50000,  # Symbols considered for convergence
     'rand': 1525,
-    'n_spans': 1,
-    'm_qam': 4,
+    'n_spans': 2,
+    'm_qam': 16,
     'sr': 40e9,
     'grid_spacing': 50e9,
     'center_freq': 193.1e12,  # Center frequency of the spectrum in Hz
@@ -54,10 +54,10 @@ system_par = {
     'filt_symb': 20,
     'alpha': 0.2,  # RRC rolloff
     'tx_laser_power_dbm': 0,
-    'tx_laser_lw': 30e3,
+    'tx_laser_lw': 10e3,
     'tx_laser_freq_shift': 0e6,  # Frequency shift in the laser [Hz]
     'rx_laser_power_dbm': 0,
-    'rx_laser_lw': 30e3,
+    'rx_laser_lw': 10e3,
     'rx_laser_freq_shift': 100e6,  # Frequency shift in the laser [Hz]
     'vpi': -1,
     'max_exc': -0.8,  # -0.8 * vpi
@@ -66,14 +66,14 @@ system_par = {
     'responsivity': 1,  # Receiver photodetector responsivity [A/W]
     'phase_shift': 5,  # Phase shift in the hybrid90 [degree]
     'skew': [5e-12, -5e-12, 5e-12, -5e-12],  # Skew for I and Q of each pol [s]
-    'adc_samples': 2,  # Number of samples after the ADC
     'adc_f_error_ppm': 0.0,  # frequency error (ppm)
     'adc_phase_error': 0.0,  # phase error [-0.5,0.5]
     'lagrange_order': 10,  # Number of lagrange coefficients (usually 4 to 6)
     'cdc_n_fft': 1024,  # FFT length to compensate CD
     'cdc_fft_overlap': 64,  # Number of samples of overlaping computing the FFT
     'pmd_eq_taps': 15,  # Number of taps of the PMD equalizer
-    'pmd_eq_eta': 1e-4,  # Learning rate of the adaptive equalizer
+    'pmd_eq_eta': 1e-3,  # Learning rate of the adaptive equalizer
+    'pmd_eq_up_samp': 2,  # Equalizer upsampling
     'bps_n_symbs': 32,  # Number of symbols to consider in the sum of the BPS
     'bps_n_phases': 64,  # Number of phases to test
     'nf_db_boost': 5.5,  # Booster noise figure in dB
@@ -82,7 +82,7 @@ system_par = {
     'fiber_att_db_km': 0.2,  # Fiber attenuation [dB/km]
     'fiber_gamma': 1.27,  # Nonlinear Coefficient [1/W/km]
     'fiber_disp': 17,  # Fiber dispersion [ps/nm/km]
-    'fiber_dgd': 0.1,  # Fiber PMD coefficient [ps/√km]
+    'fiber_dgd': 0.07,  # Fiber PMD coefficient [ps/√km]
     }
 
 # Get device to simulate the optical system
@@ -161,6 +161,8 @@ sig_ch = simple_ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
 # Loop through the rest of the spans
 for ii in range(1, system_par['n_spans']):
 
+    system_par['rand'] = system_par['rand'] + ii
+
     # Inline amplifier
     sig_ch = edfa(sig_ch, system_par['nf_db_boost'],
                   system_par['fiber_att_db_km'] * system_par['fiber_len_km'],
@@ -200,17 +202,23 @@ signal_rx = optical_front_end(sig_ch, laser_rx, system_par['responsivity'],
 signal_skew = insert_skew(signal_rx, system_par['k_up'], system_par['sr'],
                           system_par['skew'], device)
 
+# ADC
+symb_data_adc = adc(signal_skew, system_par['k_up'],
+                    system_par['k_up'], system_par['adc_f_error_ppm'],
+                    system_par['adc_phase_error'], device)
+
 # Apply the matched filter
-symb_data_matched = matched_filter(signal_skew, filter_coeffs,
+symb_data_matched = matched_filter(symb_data_adc, filter_coeffs,
                                    system_par['filt_symb'],
                                    system_par['k_up'], device)
 
-symb_data_adc = adc(symb_data_matched, system_par['k_up'],
-                    system_par['adc_samples'], system_par['adc_f_error_ppm'],
-                    system_par['adc_phase_error'], device)
+# Downsampling to 2 samples per symbol
+symb_data_ds = down_sampling(symb_data_matched,
+                             int(system_par['k_up'] /
+                                 system_par['pmd_eq_up_samp']))
 
 # Deskew with Lagrange interpolator
-symb_data_deskew = deskew(symb_data_adc, system_par['adc_samples'],
+symb_data_deskew = deskew(symb_data_ds, system_par['pmd_eq_up_samp'],
                           system_par['sr'], system_par['lagrange_order'],
                           system_par['skew'], device)
 
@@ -223,12 +231,13 @@ symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
                                 system_par['n_spans'],
                                 system_par['center_freq'] + freq_grid,
                                 system_par['sr'],
-                                system_par['adc_samples'],
+                                system_par['pmd_eq_up_samp'],
                                 system_par['cdc_n_fft'],
                                 system_par['cdc_fft_overlap'], device)
 
 # PMD Equalization (Dynamic Equalization)
-symb_data_pmdc = cma_rde_equalization(symb_data_cdc, system_par['adc_samples'],
+symb_data_pmdc = cma_rde_equalization(symb_data_cdc,
+                                      system_par['pmd_eq_up_samp'],
                                       system_par['pmd_eq_taps'],
                                       system_par['pmd_eq_eta'],
                                       system_par['pmd_eq_convergence_symbs'],

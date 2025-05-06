@@ -401,10 +401,10 @@ def manakovSSF(signal, sr, k, L, att_db, D, dgd, gamma, fc, device, maxIter=10,
 
         # PMD of the Standard deviation of the Maxwellian distribution per
         # section
-        tau = dgd_std * sqrt(hz_) * 1e-12  # s/√km to s
+        # tau = dgd_std * sqrt(hz_) * 1e-12  # s/√km to s
 
         # PMD in the frequency domain
-        E = ifft(__apply_pmd(fft(E), omega, tau, device))
+        # E = ifft(__apply_pmd(fft(E), omega, tau, device))
 
     return E
 

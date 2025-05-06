@@ -7,7 +7,8 @@ Created on Fri May  2 10:55:51 2025.
 # =============================================================================
 # ================================= Libraries =================================
 # =============================================================================
-from torch import pi, arange, float32, zeros, exp, cat, argmin, floor
+from torch import pi, arange, float32, zeros, exp, cat, argmin, floor, \
+    zeros_like
 from torch import sum as sum_torch
 from torch import abs as abs_torch
 from packages.data_streams import quantization_qam, denorm_qam_power, \
@@ -132,13 +133,16 @@ def __hard_decision(signal, qam_order, device):
         - Uses minimum-distance quantization via 'quantization_qam()'.
         - Normalization uses the known analytical average QAM power.
     """
-    # Denormalize symbols to the square QAM power
-    sig_denorm = denorm_qam_power(signal, qam_order)
+    out = zeros_like(signal)
 
-    # Quantize symbols
-    sig_quant = quantization_qam(sig_denorm, qam_order, device)
+    for ii in range(signal.shape[-1]):
+        # Denormalize symbols to the square QAM power
+        sig_denorm = denorm_qam_power(signal[..., ii], qam_order)
 
-    # Normalize symbols to unitary power
-    out = norm_qam_power(sig_quant, 'constellation', qam_order)
+        # Quantize symbols
+        sig_quant = quantization_qam(sig_denorm, qam_order, device)
+
+        # Normalize symbols to unitary power
+        out[..., ii] = norm_qam_power(sig_quant, 'constellation', qam_order)
 
     return out
