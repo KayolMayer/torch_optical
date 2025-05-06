@@ -18,7 +18,8 @@ from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
 from packages.fiber import simple_ssmf
-from packages.equalizers import cd_equalization, cma_rde_equalization
+from packages.equalizers import cd_equalization, cma_rde_equalization, \
+    cma_mcma_equalization, cma_nmcma_equalization
 from packages.frequency_recovery import freq_rec_4th_power
 from packages.phase_recovery import phase_recovery_bps
 from packages.metrics import ber_comp, ser_comp
@@ -42,7 +43,8 @@ system_par = {
     'n_symbols': 100000,
     'pmd_eq_convergence_symbs': 50000,  # Symbols considered for convergence
     'rand': 1525,
-    'm_qam': 16,
+    'n_spans': 3,
+    'm_qam': 4,
     'sr': 40e9,
     'grid_spacing': 50e9,
     'center_freq': 193.1e12,  # Center frequency of the spectrum in Hz
@@ -156,6 +158,20 @@ sig_ch = edfa(sig_tx, system_par['nf_db_boost'], system_par['gain_db_boost'],
 sig_ch = simple_ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
                      **system_par)
 
+# Loop through the rest of the spans
+for ii in range(1, system_par['n_spans']):
+
+    # Inline amplifier
+    sig_ch = edfa(sig_ch, system_par['nf_db_boost'],
+                  system_par['fiber_att_db_km'] * system_par['fiber_len_km'],
+                  system_par['center_freq'] + freq_grid, system_par['sr'],
+                  system_par['alpha'], system_par['k_up'], system_par['rand'],
+                  device)
+
+    # Fiber span
+    sig_ch = simple_ssmf(sig_ch, system_par['center_freq'] + freq_grid, device,
+                         **system_par)
+
 # *****************************************************************************
 # *****************************************************************************
 # *****************************************************************************
@@ -203,7 +219,8 @@ symb_data_gsop = gsop(symb_data_deskew)
 
 # CD compensation (Static Equalization)
 symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
-                                system_par['fiber_len_km'],
+                                system_par['fiber_len_km'] *
+                                system_par['n_spans'],
                                 system_par['center_freq'] + freq_grid,
                                 system_par['sr'],
                                 system_par['adc_samples'],
@@ -254,8 +271,10 @@ rx_sync = rx_sync[..., system_par['pmd_eq_convergence_symbs']:
 rx_sync = derotation(tx_sync, rx_sync, device)
 
 # Demodulate symbols to the respective bits
-bit_tx_sync = qam_to_bit(tx_sync, system_par['m_qam'], device, gray=True)
-bit_rx_sync = qam_to_bit(rx_sync, system_par['m_qam'], device, gray=True)
+bit_tx_sync = qam_to_bit(tx_sync, system_par['m_qam'], device,
+                         system_par['gray'])
+bit_rx_sync = qam_to_bit(rx_sync, system_par['m_qam'], device,
+                         system_par['gray'])
 
 # SER computation
 ser = ser_comp(tx_sync, rx_sync)
