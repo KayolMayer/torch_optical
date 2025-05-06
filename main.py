@@ -9,7 +9,7 @@ Created on Tue Apr 15 16:22:19 2025.
 # =============================================================================
 from torch.cuda import is_available
 from torch import tensor
-from packages.data_streams import random_bit_sequence, bit_to_qam, \
+from packages.data_streams import random_square_qam_sequence, \
     qam_to_bit, denorm_qam_power, quantization_qam, synchronization, derotation
 from packages.sampling import up_sampling, rrc_filter, shaping_filter, \
     matched_filter
@@ -18,7 +18,7 @@ from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
 from packages.fiber import simple_ssmf
-from packages.equalizers import cd_equalization, cma_equalization
+from packages.equalizers import cd_equalization, cma_rde_equalization
 from packages.frequency_recovery import freq_rec_4th_power
 from packages.phase_recovery import phase_recovery_bps
 from packages.metrics import ber_comp, ser_comp
@@ -39,10 +39,10 @@ from packages.utils import get_freq_grid
 system_par = {
     'n_ch': 1,
     'n_pol': 2,
-    'n_bits': 200000,
+    'n_symbols': 100000,
     'pmd_eq_convergence_symbs': 50000,  # Symbols considered for convergence
     'rand': 1525,
-    'm_qam': 4,
+    'm_qam': 16,
     'sr': 40e9,
     'grid_spacing': 50e9,
     'center_freq': 193.1e12,  # Center frequency of the spectrum in Hz
@@ -105,16 +105,15 @@ freq_grid = get_freq_grid(system_par['n_ch'], system_par['grid_spacing'])
 # *****************************************************************************
 # *****************************************************************************
 
-# Create the bits to be modulated
-bit_data_tx = random_bit_sequence(system_par['n_ch'],
-                                  system_par['n_pol'],
-                                  system_par['n_bits'],
-                                  device,
-                                  system_par['rand'])
-
-# Create the square QAM symbols from the generated bits
-symb_data_tx = bit_to_qam(bit_data_tx, system_par['m_qam'], device,
-                          system_par['gray'], system_par['norm'])
+# Create the square QAM symbols
+symb_data_tx = random_square_qam_sequence(system_par['n_ch'],
+                                          system_par['n_pol'],
+                                          system_par['n_symbols'],
+                                          system_par['m_qam'],
+                                          device,
+                                          system_par['rand'],
+                                          system_par['gray'],
+                                          system_par['norm'])
 
 # Upsample the symbols to use the shaping filter
 symb_data_up = up_sampling(symb_data_tx, system_par['k_up'], device)
@@ -212,12 +211,12 @@ symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
                                 system_par['cdc_fft_overlap'], device)
 
 # PMD Equalization (Dynamic Equalization)
-symb_data_pmdc = cma_equalization(symb_data_cdc, system_par['adc_samples'],
-                                  system_par['pmd_eq_taps'],
-                                  system_par['pmd_eq_eta'],
-                                  system_par['pmd_eq_convergence_symbs'],
-                                  system_par['m_qam'],
-                                  system_par['norm'], device)
+symb_data_pmdc = cma_rde_equalization(symb_data_cdc, system_par['adc_samples'],
+                                      system_par['pmd_eq_taps'],
+                                      system_par['pmd_eq_eta'],
+                                      system_par['pmd_eq_convergence_symbs'],
+                                      system_par['m_qam'],
+                                      system_par['norm'], device)
 
 # Frequency recovery with 4-th power algorithm
 symb_data_fr = freq_rec_4th_power(symb_data_pmdc,
@@ -242,12 +241,10 @@ symb_data_tx = denorm_qam_power(symb_data_tx, qam_order=system_par['m_qam'])
 # Quantize the symbols to the reference constellations
 symb_data_tx = quantization_qam(symb_data_tx, system_par['m_qam'], device)
 
-# Adjust possible
-
 # Synchronized sequences
 tx_sync, rx_sync = synchronization(symb_data_tx, symb_data_rx, device)
 
-# Discard symbols before convergence and in the end because BPS
+# Discard symbols before convergence (equalizer) and in the end (BPS)
 tx_sync = tx_sync[..., system_par['pmd_eq_convergence_symbs']:
                   -int(system_par['bps_n_phases'] / 2)]
 rx_sync = rx_sync[..., system_par['pmd_eq_convergence_symbs']:

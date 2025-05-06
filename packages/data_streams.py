@@ -63,8 +63,7 @@ def random_square_qam_sequence(n_ch, n_pol, n_symb, qam_order, device, seed,
     bit_tensor = random_bit_sequence(n_ch, n_pol, bits_qam * n_symb, device,
                                      seed)
 
-    symb_tensor = bit_to_qam(bit_tensor, qam_order, device, gray=gray,
-                             norm=norm)
+    symb_tensor = bit_to_qam(bit_tensor, qam_order, device, gray, norm)
 
     return symb_tensor
 
