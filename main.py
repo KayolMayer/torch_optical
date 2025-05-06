@@ -43,7 +43,7 @@ system_par = {
     'n_symbols': 100000,
     'pmd_eq_convergence_symbs': 50000,  # Symbols considered for convergence
     'rand': 1525,
-    'n_spans': 3,
+    'n_spans': 1,
     'm_qam': 4,
     'sr': 40e9,
     'grid_spacing': 50e9,
