@@ -423,12 +423,13 @@ def cma_mcma_equalization(signal, k, taps, eta, convergence, qam_order, norm,
 def cma_nmcma_equalization(signal, k, taps, eta, convergence, qam_order, norm,
                            device):
     """
-    Perform CMA and MCMA equalization.
+    Perform CMA and NMCMA equalization.
 
     This implementation processes complex signals received over two
     polarizations (V and H) and adaptively updates four FIR filters using the
     Constant Modulus Algorithm (CMA) cost function until convergence and after
-    that employes Modified CMA (MCMA) cost function to improve convergence.
+    that employes Nonlinear Modified CMA (NMCMA) cost function to improve
+    convergence.
 
     Args
     ----
