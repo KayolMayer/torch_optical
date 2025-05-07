@@ -18,12 +18,12 @@ from packages.opt_rx import laser_rx, optical_front_end, insert_skew, adc, \
     deskew, gsop
 from packages.amplifier import edfa
 from packages.fiber import simple_ssmf
-from packages.equalizers import cd_equalization, cma_rde_equalization, \
-    cma_mcma_equalization, cma_nmcma_equalization
+from packages.equalizers import cd_equalization, cma_rde_equalization
 from packages.frequency_recovery import freq_rec_4th_power
 from packages.phase_recovery import phase_recovery_bps
 from packages.metrics import ber_comp, ser_comp
 from packages.utils import get_freq_grid
+from matplotlib.pyplot import figure, scatter, plot, title
 # =============================================================================
 # =============================================================================
 
@@ -43,7 +43,7 @@ system_par = {
     'n_symbols': 100000,
     'pmd_eq_convergence_symbs': 50000,  # Symbols considered for convergence
     'rand': 1525,
-    'n_spans': 2,
+    'n_spans': 1,
     'm_qam': 16,
     'sr': 40e9,
     'grid_spacing': 50e9,
@@ -217,13 +217,28 @@ symb_data_ds = down_sampling(symb_data_matched,
                              int(system_par['k_up'] /
                                  system_par['pmd_eq_up_samp']))
 
+figure(1)
+title('Before Deskew')
+scatter(symb_data_ds[0, 0, -10000:-64:2].real,
+        symb_data_ds[0, 0, -10000:-64:2].imag)
+
 # Deskew with Lagrange interpolator
 symb_data_deskew = deskew(symb_data_ds, system_par['pmd_eq_up_samp'],
                           system_par['sr'], system_par['lagrange_order'],
                           system_par['skew'], device)
 
+figure(2)
+title('After Deskew')
+scatter(symb_data_deskew[0, 0, -10000:-64:2].real,
+        symb_data_deskew[0, 0, -10000:-64:2].imag)
+
 # Gram-Schmidt Orthogonalization
 symb_data_gsop = gsop(symb_data_deskew)
+
+figure(3)
+title('After orthogonalization')
+scatter(symb_data_gsop[0, 0, -10000:-64:2].real,
+        symb_data_gsop[0, 0, -10000:-64:2].imag)
 
 # CD compensation (Static Equalization)
 symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
@@ -235,6 +250,11 @@ symb_data_cdc = cd_equalization(symb_data_gsop, system_par['fiber_disp'],
                                 system_par['cdc_n_fft'],
                                 system_par['cdc_fft_overlap'], device)
 
+figure(4)
+title('After CDC')
+scatter(symb_data_cdc[0, 0, -10000:-64:2].real,
+        symb_data_cdc[0, 0, -10000:-64:2].imag)
+
 # PMD Equalization (Dynamic Equalization)
 symb_data_pmdc = cma_rde_equalization(symb_data_cdc,
                                       system_par['pmd_eq_up_samp'],
@@ -244,16 +264,35 @@ symb_data_pmdc = cma_rde_equalization(symb_data_cdc,
                                       system_par['m_qam'],
                                       system_par['norm'], device)
 
+figure(5)
+title('After CMA-RDE')
+scatter(symb_data_pmdc[0, 0, -5000:-64].real,
+        symb_data_pmdc[0, 0, -5000:-64].imag)
+
 # Frequency recovery with 4-th power algorithm
 symb_data_fr = freq_rec_4th_power(symb_data_pmdc,
                                   system_par['sr'],
                                   system_par['pmd_eq_convergence_symbs'],
                                   device)
 
+figure(6)
+title('After frequency recovery')
+scatter(symb_data_fr[0, 0, -5000:-64].real,
+        symb_data_fr[0, 0, -5000:-64].imag)
+
 # Phase recovery
 symb_data_pr = phase_recovery_bps(symb_data_fr, system_par['m_qam'],
                                   system_par['bps_n_symbs'],
                                   system_par['bps_n_phases'], device)
+
+figure(7)
+title('After phase recovery')
+scatter(symb_data_pr[0, 0, -5000:-64].real,
+        symb_data_pr[0, 0, -5000:-64].imag)
+
+figure(8)
+title('Convergence')
+plot(symb_data_pr[0, 0, :].real, '.')
 
 # Denormalize the QAM signal to the constellation power
 symb_data_rx = denorm_qam_power(symb_data_pr, qam_order=system_par['m_qam'])
