@@ -74,7 +74,7 @@ system_par = {
     'pmd_eq_taps': 15,  # Number of taps of the PMD equalizer
     'pmd_eq_eta': 1e-3,  # Learning rate of the adaptive equalizer
     'pmd_eq_up_samp': 2,  # Equalizer upsampling
-    'pmd_eq_batch': 1,  # minibatch during equalization
+    'pmd_eq_batch': 16,  # minibatch during equalization
     'bps_n_symbs': 32,  # Number of symbols to consider in the sum of the BPS
     'bps_n_phases': 64,  # Number of phases to test
     'nf_db_boost': 5.5,  # Booster noise figure in dB

@@ -263,10 +263,10 @@ def cma_rde_equalization(signal, k, taps, eta, convergence, batch, qam_order,
         if ii % batch == 0:
 
             # Update filters
-            w_0_v += eta * grad_0_v / batch
-            w_0_h += eta * grad_0_h / batch
-            w_1_v += eta * grad_1_v / batch
-            w_1_h += eta * grad_1_h / batch
+            w_0_v += eta * grad_0_v
+            w_0_h += eta * grad_0_h
+            w_1_v += eta * grad_1_v
+            w_1_h += eta * grad_1_h
 
             # Restart gradients for the next batch
             grad_0_v = zeros_like(grad_0_v)
@@ -310,10 +310,10 @@ def cma_rde_equalization(signal, k, taps, eta, convergence, batch, qam_order,
         if ii % batch == 0:
 
             # Update filters
-            w_0_v += eta * grad_0_v / batch
-            w_0_h += eta * grad_0_h / batch
-            w_1_v += eta * grad_1_v / batch
-            w_1_h += eta * grad_1_h / batch
+            w_0_v += eta * grad_0_v
+            w_0_h += eta * grad_0_h
+            w_1_v += eta * grad_1_v
+            w_1_h += eta * grad_1_h
 
             # Restart gradients for the next batch
             grad_0_v = zeros_like(grad_0_v)
