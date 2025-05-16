@@ -8,7 +8,8 @@ Created on Fri Apr 25 13:35:51 2025.
 # ================================= Libraries =================================
 # =============================================================================
 from torch import tensor, ceil, cat, reshape, zeros, cfloat, float32, arange, \
-    exp, pi, roll, meshgrid, mean, sqrt, flip, floor, unique, argmin, sin, cos
+    exp, pi, roll, meshgrid, mean, sqrt, flip, floor, unique, argmin, sin, \
+    cos, zeros_like
 from torch import sum as sum_torch
 from torch import abs as abs_torch
 from torch.fft import fft, fftshift, ifft, ifftshift
@@ -164,8 +165,8 @@ def __overlap_cdc(signal, n_fft, n_over, h_freq_cd, device):
     return out
 
 
-def cma_rde_equalization(signal, k, taps, eta, convergence, qam_order, norm,
-                         device):
+def cma_rde_equalization(signal, k, taps, eta, convergence, batch, qam_order,
+                         norm, device):
     """
     Perform CMA and RDE equalization.
 
@@ -219,6 +220,12 @@ def cma_rde_equalization(signal, k, taps, eta, convergence, qam_order, norm,
     w_0_h = zeros((n_ch, taps), dtype=cfloat, device=device)
     w_1_h = zeros((n_ch, taps), dtype=cfloat, device=device)
 
+    # Create filter gradient vectors
+    grad_0_v = zeros_like(w_0_v)
+    grad_1_v = zeros_like(w_1_v)
+    grad_0_h = zeros_like(w_0_h)
+    grad_1_h = zeros_like(w_1_h)
+
     # Initialize the vertical channel with single spike (regarding y_1)
     w_0_v[:, int(floor(tensor(taps / 2)))] += 1 + 0j
 
@@ -246,14 +253,26 @@ def cma_rde_equalization(signal, k, taps, eta, convergence, qam_order, norm,
         # auxiliar computation
         aux = (r_cma - abs_torch(y[..., ii]) ** 2) * y[..., ii]
 
+        # Compute gradients
+        grad_0_v += fifo[:, 0, :].conj() * aux[:, 0].unsqueeze(-1)
+        grad_0_h += fifo[:, 1, :].conj() * aux[:, 0].unsqueeze(-1)
+        grad_1_v += fifo[:, 0, :].conj() * aux[:, 1].unsqueeze(-1)
+        grad_1_h += fifo[:, 1, :].conj() * aux[:, 1].unsqueeze(-1)
+
         # Update the filters
-        w_0_v += eta * fifo[:, 0, :].conj() * aux[:, 0].unsqueeze(-1)
+        if ii % batch == 0:
 
-        w_0_h += eta * fifo[:, 1, :].conj() * aux[:, 0].unsqueeze(-1)
+            # Update filters
+            w_0_v += eta * grad_0_v / batch
+            w_0_h += eta * grad_0_h / batch
+            w_1_v += eta * grad_1_v / batch
+            w_1_h += eta * grad_1_h / batch
 
-        w_1_v += eta * fifo[:, 0, :].conj() * aux[:, 1].unsqueeze(-1)
-
-        w_1_h += eta * fifo[:, 1, :].conj() * aux[:, 1].unsqueeze(-1)
+            # Restart gradients for the next batch
+            grad_0_v = zeros_like(grad_0_v)
+            grad_0_h = zeros_like(grad_0_h)
+            grad_1_v = zeros_like(grad_1_v)
+            grad_1_h = zeros_like(grad_1_h)
 
         # Reinitialize the filters of y2 to avoid singularities
         if ii == int(convergence / 2):
@@ -281,14 +300,26 @@ def cma_rde_equalization(signal, k, taps, eta, convergence, qam_order, norm,
                                  abs_torch(y[..., ii].unsqueeze(-1))), dim=-1)
         aux = (r_rde[min_r] ** 2 - abs_torch(y[..., ii]) ** 2) * y[..., ii]
 
+        # Compute gradients
+        grad_0_v += fifo[:, 0, :].conj() * aux[:, 0].unsqueeze(-1)
+        grad_0_h += fifo[:, 1, :].conj() * aux[:, 0].unsqueeze(-1)
+        grad_1_v += fifo[:, 0, :].conj() * aux[:, 1].unsqueeze(-1)
+        grad_1_h += fifo[:, 1, :].conj() * aux[:, 1].unsqueeze(-1)
+
         # Update the filters
-        w_0_v += eta * fifo[:, 0, :].conj() * aux[:, 0].unsqueeze(-1)
+        if ii % batch == 0:
 
-        w_0_h += eta * fifo[:, 1, :].conj() * aux[:, 0].unsqueeze(-1)
+            # Update filters
+            w_0_v += eta * grad_0_v / batch
+            w_0_h += eta * grad_0_h / batch
+            w_1_v += eta * grad_1_v / batch
+            w_1_h += eta * grad_1_h / batch
 
-        w_1_v += eta * fifo[:, 0, :].conj() * aux[:, 1].unsqueeze(-1)
-
-        w_1_h += eta * fifo[:, 1, :].conj() * aux[:, 1].unsqueeze(-1)
+            # Restart gradients for the next batch
+            grad_0_v = zeros_like(grad_0_v)
+            grad_0_h = zeros_like(grad_0_h)
+            grad_1_v = zeros_like(grad_1_v)
+            grad_1_h = zeros_like(grad_1_h)
 
     return y
 

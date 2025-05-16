@@ -43,7 +43,7 @@ system_par = {
     'n_symbols': 100000,
     'pmd_eq_convergence_symbs': 50000,  # Symbols considered for convergence
     'rand': 1525,
-    'n_spans': 1,
+    'n_spans': 2,
     'm_qam': 16,
     'sr': 40e9,
     'grid_spacing': 50e9,
@@ -74,6 +74,7 @@ system_par = {
     'pmd_eq_taps': 15,  # Number of taps of the PMD equalizer
     'pmd_eq_eta': 1e-3,  # Learning rate of the adaptive equalizer
     'pmd_eq_up_samp': 2,  # Equalizer upsampling
+    'pmd_eq_batch': 1,  # minibatch during equalization
     'bps_n_symbs': 32,  # Number of symbols to consider in the sum of the BPS
     'bps_n_phases': 64,  # Number of phases to test
     'nf_db_boost': 5.5,  # Booster noise figure in dB
@@ -261,8 +262,10 @@ symb_data_pmdc = cma_rde_equalization(symb_data_cdc,
                                       system_par['pmd_eq_taps'],
                                       system_par['pmd_eq_eta'],
                                       system_par['pmd_eq_convergence_symbs'],
+                                      system_par['pmd_eq_batch'],
                                       system_par['m_qam'],
-                                      system_par['norm'], device)
+                                      system_par['norm'],
+                                      device)
 
 figure(5)
 title('After CMA-RDE')
