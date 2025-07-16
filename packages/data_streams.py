@@ -716,6 +716,57 @@ def __synchronization(tx_tensor, rx_tensor, device, max_shift=200):
     return pos - max_shift, sum_torch(val, dim=-1)
 
 
+def __synchronization_zc(zc_seq, rx_tensor, device):
+    """
+    Compute the optimal time alignment between tx and rx signals.
+
+    Parameters
+    ----------
+    tx_tensor : torch.Tensor
+        Transmitted signal tensor of shape (n_ch, n_pol, n_s), where
+        n_ch is the number of channels,
+        n_pol is the number of polarizations (usually 2),
+        n_s is the number of symbols or samples.
+
+    rx_tensor : torch.Tensor
+        Received signal tensor of the same shape as tx_tensor.
+
+    device : torch.device
+        The device (CPU or CUDA) on which to perform computations.
+
+    max_shift : int, optional
+        The maximum absolute shift (in symbols) to search for synchronization.
+        The total search range is [-max_shift, max_shift]. Default is 200.
+
+    Returns
+    -------
+    pos : torch.Tensor
+        Tensor of shape (n_ch, n_pol) containing the optimal shift positions
+        that maximize the correlation for each channel and polarization.
+
+    val : torch.Tensor
+        Tensor of shape (n_ch,) containing the total correlation values
+        (summed over polarizations) for the best shifts in each channel.
+    """
+    # Get the number of channels, polarizations, and samples
+    n_ch, n_pol, n_s = rx_tensor.shape
+
+    # Number os symbols used to compute the correlation
+    n_corr = zc_seq.shape[-1]
+
+    # Tensor of correlations
+    corr = zeros((n_ch, n_pol, n_corr), dtype=float32, device=device)
+
+    # Loop through the shifts
+    for ii in range(n_corr):
+        corr[..., ii] = p_corr(zc_seq, rx_tensor[..., ii: n_corr + ii])
+
+    # Positions that maximize
+    val, pos = max_torch(corr, dim=-1)
+
+    return pos, sum_torch(val, dim=-1)
+
+
 def synchronization(tx_tensor, rx_tensor, device, max_shift=200):
     """
     Find best synchronization shifts per channel and polarization based on MSE.
@@ -773,6 +824,63 @@ def synchronization(tx_tensor, rx_tensor, device, max_shift=200):
                                          n_out + n_pos + pos_i[ch, 1]]
 
     return tx_out, rx_out
+
+
+def synchronization_zc(zc_seq, rx_tensor, device):
+    """
+    Find best synchronization shifts per channel and polarization based on MSE.
+
+    Args
+    ----
+        tx_tensor (torch.Tensor): Transmitted signal of
+                                  shape (n_ch, n_pol, n_s).
+        rx_tensor (torch.Tensor): Received signal of same shape.
+        device (torch.device): Torch device.
+        max_shift (int): Max number of samples to search for alignment.
+
+    Returns
+    -------
+        shifts (torch.Tensor): Optimal shift per channel and polarization
+                               (n_ch, n_pol).
+        values (torch.Tensor): Similarity (1 / MSE) per channel (n_ch,).
+    """
+    # Get the number of channels, polarizations, and samples
+    n_ch, n_pol, n_s = rx_tensor.shape
+
+    # Get synchronization without invert polarizations
+    pos_d, val_d = __synchronization_zc(zc_seq, rx_tensor, device)
+
+    # Get synchronization inverting polarizations
+    pos_i, val_i = __synchronization_zc(zc_seq, flip(rx_tensor, [-2]), device)
+
+    # Positions to discard to keep both tensors with the same dimension
+    n_pos = int(max_torch(tensor([max_torch(abs_torch(pos_d[ch]))
+                                  if val_d[ch] >= val_i[ch]
+                                  else max_torch(abs_torch(pos_i[ch]))
+                                  for ch in range(n_ch)])))
+
+    # Length of output tensors
+    n_out = n_s - 2 * n_pos
+
+    # Initialize the output tx and rx
+    rx_out = zeros((n_ch, n_pol, n_out), dtype=cfloat, device=device)
+
+    # For each channel
+    for ch in range(n_ch):
+
+        if val_d[ch] >= val_i[ch]:
+
+            rx_out[ch, 0, :] = rx_tensor[ch, 0, n_pos + pos_d[ch, 0]:
+                                         n_out + n_pos + pos_d[ch, 0]]
+            rx_out[ch, 1, :] = rx_tensor[ch, 1, n_pos + pos_d[ch, 1]:
+                                         n_out + n_pos + pos_d[ch, 1]]
+        else:
+            rx_out[ch, 0, :] = rx_tensor[ch, 1, n_pos + pos_i[ch, 0]:
+                                         n_out + n_pos + pos_i[ch, 0]]
+            rx_out[ch, 1, :] = rx_tensor[ch, 0, n_pos + pos_i[ch, 1]:
+                                         n_out + n_pos + pos_i[ch, 1]]
+
+    return rx_out
 
 
 def derotation(tx_tensor, rx_tensor, device):
