@@ -9,14 +9,95 @@ Created on Tue April 15 16:07:28 2025.
 # =============================================================================
 from torch import manual_seed, randint, reshape, arange, int8, cat, tensor, \
     long, sqrt, cumsum, roll, mean, argmin, float32, meshgrid, log2, zeros, \
-    flip, cfloat, pi, exp
+    flip, cfloat, pi, exp, empty, gcd, ones
 from torch import sum as sum_torch
 from torch import abs as abs_torch
 from torch import max as max_torch
 from torch import round as round_torch
+from torch import bool as bool_torch
 from packages.utils import p_corr
 # =============================================================================
 # =============================================================================
+
+
+def generate_zc_sequences(n_ch, n_pol, n_symb, device):
+    """
+    Generate Zadoff-Chu sequences.
+
+    It supports both even and odd sequence lengths.
+
+    Args
+    ----
+        n_ch (int): Number of channels (distinct root indices).
+        n_pol (int): Number of polarizations.
+        n_symb (int): Length of the Zadoff-Chu sequence.
+        u_start (int): Starting root index (must be coprime with n_symb).
+                       Default is 1.
+
+    Returns
+    -------
+        torch.Tensor: Complex tensor of shape (n_ch, n_pol, n_symb),
+                      dtype=torch.cfloat.
+    """
+    # Time index vector
+    n = arange(n_symb, dtype=float32, device=device) + 1
+
+    # Initiate the q_fac
+    q_fac = min(n_ch * n_pol, n_symb - 1)
+
+    # Starting root indexes
+    u = [1]
+    for _ in range(1, n_ch * n_pol):
+        u_aux = u[-1] + 1
+        while gcd(tensor(u_aux), tensor(n_symb)) != 1:
+            u_aux = u_aux + 1
+        u.append(u_aux)
+
+    # Convert u for tensor and adjust dimensions
+    u = reshape(tensor(u, device=device), (n_ch, n_pol, 1))
+
+    # Preallocate output tensor
+    zc_tensor = exp(-1j * pi * u * n * (n + (n_symb % 2) + 2 * q_fac) / n_symb)
+
+    return zc_tensor
+
+
+def insert_pilots(symbols, pilots, pilot_space, device):
+    """
+    Insert pilots into a tensor of data symbols at fixed intervals.
+
+    Args
+    ----
+        symbols (torch.Tensor): Tensor of shape (n_ch, n_pol, n_symb).
+        pilots (torch.Tensor): Tensor of shape (n_ch, n_pol, n_pilots).
+        pilot_space (int): Interval between inserted pilots.
+
+    Returns
+    -------
+        torch.Tensor: Tensor of shape (n_ch, n_pol, n_symb + n_pilots),
+                      with pilots inserted.
+    """
+    n_ch, n_pol, n_symb = symbols.shape
+    n_pilots = pilots.shape[-1]
+
+    # Final length after inserting all pilots
+    total_len = n_symb + n_pilots
+
+    # Prepare output tensor
+    output = empty((n_ch, n_pol, total_len), dtype=cfloat, device=device)
+
+    # Generate mask to place pilots
+    pilot_indices = arange(0, total_len, pilot_space,
+                           device=device)[:n_pilots]
+    data_mask = ones(total_len, dtype=bool_torch, device=device)
+    data_mask[pilot_indices] = False
+    data_indices = arange(total_len, device=symbols.device)[data_mask]
+
+    # Insert symbols and pilots
+    output[:, :, data_indices] = symbols
+    output[:, :, pilot_indices] = pilots
+
+    return output
 
 
 def random_square_qam_sequence(n_ch, n_pol, n_symb, qam_order, device, seed,

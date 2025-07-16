@@ -125,7 +125,7 @@ symb_data_up = up_sampling(symb_data_tx, system_par['k_up'], device)
 symb_data_shape = shaping_filter(symb_data_up, filter_coeffs, device)
 
 # Create the laser source. All channels are considered centered in zero, but
-# the impairments are applied to their rescpective frequency.
+# the impairments are applied to their respective frequency.
 laser_tx = laser_tx(system_par['n_ch'], system_par['n_pol'],
                     symb_data_shape.shape[-1],
                     system_par['tx_laser_power_dbm'],
